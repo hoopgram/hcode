@@ -14,6 +14,12 @@ Anthropic-compatible endpoint. The current build makes it something you can *dep
 stream per session, crash recovery that never repeats a side effect, an OS sandbox, a policy file,
 and — if you installed them — Claude Code or Codex as bounded subagents behind the same gate.
 
+## Develop
+
+Human contributors and coding agents start with **[DEVELOPING.md](DEVELOPING.md)**. It routes a change to the
+smallest owning module and test, explains the special in-process HoopOS contract, and separates ordinary local
+development from push, release, npm, signing and production gates.
+
 ## Architecture
 
 Start with the **[ten-minute architecture map](ARCHITECTURE.md)**. It follows one request around the agent loop,

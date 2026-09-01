@@ -177,7 +177,8 @@ to call from many places, so a small semantic change can affect many consumers.
 
 ## 6. Fast reading route
 
-1. Read `README.md` for the product contract and `HCODE.md` for contributor rules.
+1. Start with `DEVELOPING.md` for the public workflow, then use `README.md` for the product contract and
+   `HCODE.md` for the instructions hcode loads into coding agents.
 2. Read this file through the render-path section.
 3. Open only the row in the table above that matches your change.
 4. Read `CAPABILITY-BOUNDARY.md` before changing tools, delegation, network, or permissions.
