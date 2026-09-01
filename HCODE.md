@@ -2,7 +2,8 @@
 
 ## Purpose
 
-`hcode` (Hoop Code) is HoopGram's zero-dependency AI coding agent for the terminal.
+`hcode` (Hoop Code) is HoopGram's self-contained AI coding agent for the terminal, with zero
+third-party runtime packages.
 It runs inside one project directory with a small tool belt (read_file, write_file,
 edit_file, list_dir, glob, grep, web_search, bash, ask_user, update_plan, delegate_agent), writes every session as an append-only
 event stream (src/session.js), gates tools through a policy + OS sandbox (src/policy.js,
@@ -11,8 +12,9 @@ Anthropic Messages API (or a Hoop's keyproxy / any compatible endpoint).
 
 ## Hard rules
 
-- **Zero dependencies.** Node.js >= 20 built-ins only (`node:fs`, `node:os`, `node:path`,
-  `node:child_process`, `node:readline`, `node:net`, `node:crypto`, `node:stream`, …).
+- **Zero runtime dependencies.** Source/npm mode uses Node.js >= 20 built-ins only; native releases
+  embed a pinned Node runtime. The pinned `esbuild` and `postject` dev dependencies only build release
+  input and are never installed or loaded by hcode at runtime.
 - **ESM only.** `"type": "module"`; use `import` / `export`.
 - **Keep the architecture visible.** `ARCHITECTURE.md` is the one public architecture map and is linked
   from the GitHub README. Any module-boundary, trust-boundary, data-flow or render-path change updates it in the same commit;
@@ -25,7 +27,8 @@ Anthropic Messages API (or a Hoop's keyproxy / any compatible endpoint).
   (`~/.ssh`, `.env*`, `*.pem`, `*.key`, `~/.hcode`, `~/.hoopgram`, `~/.aws`, `~/.gnupg`, …).
 - **Writes/edits stay inside the project root.** Reads may look outside the root but
   still must skip secret-shaped paths. Never touch hcode's own config, secrets, or keys.
-- Do not add dependencies, lockfiles, or build steps. Keep everything in `bin/` + `src/`.
+- Do not add runtime dependencies. Build dependencies require an exact version, lockfile, checksum-
+  pinned external inputs and a release-contract test; keep runtime code in `bin/` + `src/`.
 
 ## How to test
 
@@ -37,6 +40,11 @@ Run both before finishing a change.
 
 - `ARCHITECTURE.md` — ten-minute system map, event loop, render paths, change routing, and test gates.
 - `bin/hcode.js` — entrypoint; calls `main()` from `src/cli.js`.
+- `src/runtime.js` — one source/native/Nix identity, resource and self-relaunch contract.
+- `src/native-install.js`, `src/update.js` — verify, atomically switch, update and roll back native versions;
+  source updates remain Git-only and Nix remains externally managed.
+- `scripts/build-native.mjs` — pinned Node 24 LTS + CommonJS SEA candidate recipe; release artifacts are
+  accepted only after host-native probes in `.github/workflows/hcode-native-ci.yml`.
 - `src/cli.js` — command surface: interactive, one task, `-p` print mode, `--resume`, `connect`, `doctor`, `sessions`, `--version`, `--help`.
 - `src/agent.js` — agent loop (prompt → stream → run tools with permissions); loads `HCODE.md`/`AGENTS.md`/`CLAUDE.md`.
 - `src/api.js` — Anthropic Messages API streaming (SSE) with tool use; `ApiError`, `sseEvents`, `streamMessage`.
@@ -83,8 +91,8 @@ nothing here needs a server.
 6. **Networking changes get a live check:** `hcode --print "reply OK"` twice against the
    remembered Hoop (first run may learn, second must be faster), then `pgrep -fl "ssh.*<host>"`
    must be empty. An unfamiliar address in an ssh error is often a VPN or proxy's fake IP, not the Hoop.
-7. **No version bump mid-stream.** Append bullets under the unreleased CHANGELOG version;
-   bump when the owner releases.
+7. **No version bump mid-stream.** Append bullets under Unreleased; bump once at the integrated candidate
+   checkpoint. GitHub Release, npm publish and signing/notarization are later owner gates, not implied by a bump.
 8. **State lives in three places only:** the code + CHANGELOG (facts), the agent's own task /
    handoff file (updated every commit; hand off and clear context at milestones), and this
    section (the method). Nothing private belongs in any of them: no hostnames, addresses,

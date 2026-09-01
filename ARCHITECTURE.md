@@ -7,8 +7,8 @@ Read this in ten minutes before changing hcode. The durable idea is small:
 Everything in hcode exists to make one part of that loop correct when the terminal is narrow, a stream is
 interrupted, several tools arrive together, a process crashes, or output is going to a pipe instead of a person.
 
-Snapshot, measured 2026-09-01: 50 JavaScript files and 11,868 lines in `src/`; 49 JavaScript test files and
-8,158 lines in `test/`. These numbers are orientation, not an invariant.
+Snapshot, measured 2026-09-01: 55 JavaScript files and 12,215 lines in `src/`; 52 JavaScript test files and
+8,290 lines in `test/`. These numbers are orientation, not an invariant.
 
 ## 1. The loop
 
@@ -58,7 +58,8 @@ flowchart TB
     Owner["Owner"] --> Bin
 
     subgraph Entry["ENTRY — translate process invocation"]
-        Bin["bin/hcode.js<br/>small hand-off to main()"]
+        Bin["bin/hcode.js / native-entry.js<br/>small hand-off to main()"]
+        Runtime["runtime.js<br/>source / native / Nix self contract"]
     end
 
     subgraph Coordination["COORDINATION — own decisions and lifecycle"]
@@ -74,7 +75,7 @@ flowchart TB
         Tooling["tools.js · sandbox.js · web-search.js<br/>tool contracts and execution"]
         Events["session.js · rewind.js<br/>append-only history and recovery"]
         Composer["composer.js<br/>interactive input and live-frame state"]
-        Projection["ui.js · frame.js · presence.js<br/>semantic output and terminal projection"]
+        Projection["ui.js · frame.js · presence.js · brand.js<br/>semantic output and terminal projection"]
         Config["config.js<br/>configuration cascade"]
     end
 
@@ -86,6 +87,8 @@ flowchart TB
     end
 
     Bin --> CLI
+    Bin --> Runtime
+    CLI --> Runtime
     CLI --> Composer
     CLI --> Config
     Agent <--> API
@@ -120,9 +123,15 @@ flowchart LR
 The paths should not look identical. They must preserve the same meaning.
 
 - `createUI()` in `src/ui.js` owns the semantic tool-action table.
+- `src/brand.js` owns the fixed-cell terminal translation of the canonical HoopGram SVG; `ui.js` alone decides
+  whether it is the bounded launch splash, the static dialog mark, or absent from a plain sink.
 - `src/composer.js` owns full-screen geometry and the bottom-pinned frame.
 - The readline fallback may repaint its one activity line.
 - Plain output contains no ANSI, carriage return, cursor movement, or colour-only meaning.
+
+The launch splash runs before the composer owns the screen, clears its last frame, and never enters the session
+transcript. It is skipped for pipes, print mode, CI, dumb/no-colour terminals and reduced motion. Once the composer
+starts, only the compact static mark is transcript content; this keeps the no-fourth-render-path invariant intact.
 
 This used to be a memory rule after a fix reached readline but not the owner's composer. It is now executable:
 
@@ -161,6 +170,8 @@ to call from many places, so a small semantic change can affect many consumers.
 | Resume, recovery, rewind | `session.js`, `rewind.js` | crash/replay and reference-lifetime tests |
 | CLI command or mode | the owning small module, then `cli.js` wiring | command-specific test plus the affected render paths |
 | Configuration | `config.js` | precedence: CLI > environment > owner config > default |
+| Native build, resource or self-relaunch | `runtime.js`, then the owning worker | source/native parity and real artifact probes |
+| Install, update or rollback | `native-install.js`, `update.js` | wrong hash/platform, interrupted switch, rollback, source/Nix refusal |
 | Public web search | `web-search.js`, `tools.js` | fixed provider, redirect, size, timeout, and source-label tests |
 | Connected Hoop | `connect.js`, `brain.js`, `connectors.js` | read-only capability and tunnel-cleanup tests |
 
@@ -176,3 +187,25 @@ to call from many places, so a small semantic change can affect many consumers.
 Close a change with the smallest relevant test first, then `npm run check` and `npm test`. Keep architecture
 facts here: if a module boundary, event flow, trust boundary, or render path changes, update this map in the same
 commit. Process history belongs in the changelog or a task ledger, not in the architecture.
+
+## 7. Distribution is a projection, not a fork
+
+```mermaid
+flowchart LR
+    Source["one commit · one version"] --> NPM["npm/source<br/>Node >=20 · runtime deps 0"]
+    Source --> M1["macOS arm64 runner"]
+    Source --> M2["macOS x64 runner"]
+    Source --> L1["Linux arm64 runner"]
+    Source --> L2["Linux x64 runner"]
+    M1 & M2 & L1 & L2 --> Manifest["native manifest<br/>commit · tree · bytes · sha256 · host probes"]
+    Manifest --> Install["versioned install<br/>verify → atomic link → rollback"]
+```
+
+`runtime.js` is why this does not become five codebases: source mode relaunches `node bin/hcode.js`; a SEA
+relaunches its own executable; Nix identifies itself as immutable. `native-install.js` owns only artifact
+integrity and link switching. The agent, tools, policy, session and UI are shared byte-for-byte before bundling.
+
+Release candidates use Node 24 LTS, an exact esbuild CommonJS bundle and the established SEA/postject injection
+path. Each target remains `verified:false` until that exact file executes version, help and embedded-charter
+probes on its own OS/architecture. The CI workflow can build candidates but has no release/publish job. npm,
+GitHub Release, Developer ID signing/notarization and Nix publication remain separate evidence and owner gates.

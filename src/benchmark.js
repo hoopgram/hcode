@@ -6,14 +6,13 @@ import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
 import { execFile, execFileSync, spawn } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import { Session } from "./session.js";
 import { estimateTokens, maybeCompact } from "./agent.js";
 import { HOME, VERSION } from "./config.js";
 import { externalRunnerEnv, findBinary } from "./runners.js";
+import { selfCommand } from "./runtime.js";
 
 export const BENCHMARK_VERSION = "hcode-public-v1";
-const BIN = fileURLToPath(new URL("../bin/hcode.js", import.meta.url));
 const MAX_CAPTURE = 2 * 1024 * 1024;
 const PLAN_LABELS = ["Objective", "Constraints", "Workstreams", "Dependencies", "Risks", "Acceptance", "Owner gates", "Stop condition"];
 const PLAN_SECTION_SYNTAX = "line start, optional Markdown heading/emphasis, exact label, optional colon";
@@ -248,7 +247,7 @@ function runnerCommand(id, cfg, cwd, prompt, { plan = false, budgetUsd = 0.75 } 
   if (id === "hcode") {
     const home = ownTemp("hcode-bench-home-"); const sessionsDir = path.join(home, "sessions");
     const env = { ...process.env, NO_COLOR: "1", HCODE_HOME: home, HCODE_SESSIONS: sessionsDir, HCODE_BASE_URL: cfg.baseUrl, HCODE_API_KEY: cfg.apiKey, HCODE_MODEL: cfg.model, HCODE_EFFORT: effort, HCODE_TIMEOUT_MS: plan ? "180000" : "360000" };
-    return { command: process.execPath, args: [BIN, "-p", "--mode", plan ? "read" : "auto", "--effort", effort, "--max-turns", plan ? "1" : "6", "--max-tokens", "1536", "--cwd", cwd, prompt], env, sessionsDir, cleanup: home };
+    return { ...selfCommand(["-p", "--mode", plan ? "read" : "auto", "--effort", effort, "--max-turns", plan ? "1" : "6", "--max-tokens", "1536", "--cwd", cwd, prompt]), env, sessionsDir, cleanup: home };
   }
   const env = { ...externalRunnerEnv(process.env), NO_COLOR: "1" };
   if (id === "codex") return { command: findBinary("codex", process.env), args: ["exec", "--json", "--ephemeral", "--ignore-user-config", "--ignore-rules", "--skip-git-repo-check", "--sandbox", plan ? "read-only" : "workspace-write", "-C", cwd, "-m", "gpt-5.6-luna", "-c", `model_reasoning_effort=${JSON.stringify(effort)}`, prompt], env };

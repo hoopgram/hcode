@@ -3,12 +3,12 @@
 The concise security and coordination contract for `task`, `work`, and `guard` is in
 [CAPABILITY-BOUNDARY.md](CAPABILITY-BOUNDARY.md).
 
-In 0.9.4, **菊与刀**, hcode opens in Full Agency by default while keeping its fixed hard gates. A real
+Since 0.9.4, **菊与刀**, hcode opens in Full Agency by default while keeping its fixed hard gates. A real
 interactive first launch asks whether to remember that choice or ask again next time. Public-web search is
 a first-class sourced tool instead of a Bash workaround or a failed Hoop-memory fallback.
 
-HoopGram's AI coding agent for your terminal. **Zero dependencies** — only Node ≥ 20 built-ins —
-one file tree, one binary name. On a [Hoop](https://hoopgram.ai/hoop) it is already wired to your
+HoopGram's AI coding agent for your terminal. **Zero third-party runtime packages** — native releases
+carry their own pinned Node runtime; source/npm mode uses only Node ≥ 20 built-ins. On a [Hoop](https://hoopgram.ai/hoop) it is already wired to your
 own brain; on your laptop it can sign in through hoopgram.ai, borrow your Hoop's brain through an SSH tunnel, or talk to any
 Anthropic-compatible endpoint. The current build makes it something you can *depend on*: an append-only event
 stream per session, crash recovery that never repeats a side effect, an OS sandbox, a policy file,
@@ -20,6 +20,20 @@ Start with the **[ten-minute architecture map](ARCHITECTURE.md)**. It follows on
 draws the responsibility and trust boundaries, explains the composer/readline/plain render paths, and gives a
 file-and-test route for each common kind of change. The compact invariant is: brains propose; policy decides;
 tools act; the append-only session records; the terminal projects.
+
+## Install channels: one version, two entrances
+
+hcode has one source tree and one version number. npm and native are distribution channels, not forks:
+
+- **npm/source is the default macOS channel until HoopGram has Developer ID signing and notarization.** It
+  needs Node ≥ 20, uses no third-party runtime package, and remains fully supported.
+- **Native is self-contained.** Node 24 LTS is inside the executable; ordinary owners do not install Node,
+  npm or a package manager. Linux and macOS each build on their own architecture. Until notarization exists,
+  macOS native files are explicitly labelled preview artifacts rather than the default public install.
+- **Nix remains Nix-managed.** A Nix store executable never self-modifies; update the flake/profile instead.
+
+The four native files and npm package must all name the same version and source commit. A normal feature is
+implemented once. The matrix only repeats packaging and platform probes.
 
 ```sh
 npm i -g @hoopgram/hcode
@@ -34,6 +48,12 @@ hcode                        # hcode may propose a bounded Codex/Claude subtask;
 hcode task start claude "inspect the parser"  # persistent background conversation
 ```
 
+A native preview includes `install.sh`, four host-built binaries, one source-bound manifest and checksums. The
+installer names the preview URL explicitly; a future signed stable release can use the default `latest` URL. It installs versions below
+`~/.local/share/hcode/versions/`, switches `~/.local/bin/hcode` atomically, and keeps one verified previous
+version for `hcode rollback`. `/update` fast-forwards a source checkout, downloads and verifies a native
+manifest for a native install, and refuses to mutate Nix.
+
 ## What it does
 
 * Works inside **one project directory** with a small tool belt: `read_file`, `write_file`,
@@ -45,6 +65,8 @@ hcode task start claude "inspect the parser"  # persistent background conversati
   search commands, paste multiline text as one message, press Ctrl-V to attach a clipboard image, and queue the next message without waiting. Images live only in a private process temp directory; session JSONL stores a digest/reference, never base64. A brain without declared vision is told that it cannot see the image, and an image-capable Codex/Claude subagent receives it only after the normal owner yes/no gate. Answers project
   progressively. Read/search activity replaces one live row instead of filling the transcript; edits, writes and commands leave compact `Edited`/`Wrote`/`Ran` records, and multi-step work updates a goal/checkpoint plan. The live work word carries a reduced-motion-safe gold sweep and `esc to interrupt`; its same-height repaint changes only that row, avoiding full-footer flashes.
   `/verbose` reveals raw tool details and `/usage` shows tokens; pipes and print mode stay plain.
+  Interactive launch uses one short golden-Hoop charge before the composer takes the screen. Set
+  `HCODE_REDUCE_MOTION=1` (all optional motion) or `HCODE_SPLASH=0` (launch only) to keep it static.
 * Reads `HCODE.md → AGENTS.md → CLAUDE.md` and `.hcode/skills/*/SKILL.md` from the project root into its instructions.
 * Keeps two worlds explicit: file/command tools and Codex/Claude always belong to the machine running hcode;
   `hoop_status`, `hoop_finance`, `hoop_files`, `hoop_calendar`, and `hoop_memory` read a connected Hoop and

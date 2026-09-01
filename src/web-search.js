@@ -2,6 +2,7 @@
 // contacts one fixed search endpoint and returns source links without fetching any result page.
 // This keeps "search the web" useful without turning the tool belt into an arbitrary network client.
 import https from "node:https";
+import { VERSION } from "./config.js";
 
 const SEARCH_ORIGIN = "https://html.duckduckgo.com";
 const MAX_BODY = 1_000_000;
@@ -44,7 +45,7 @@ export function requestSearchPage(target, { timeoutMs = 10000, signal = null, re
   const url = target instanceof URL ? target : new URL(target);
   if (url.origin !== SEARCH_ORIGIN) return Promise.reject(new Error("search redirect left the fixed provider"));
   return new Promise((resolve, reject) => {
-    const req = https.get(url, { timeout: timeoutMs, headers: { accept: "text/html", "user-agent": "hcode/0.9.4" }, signal }, res => {
+    const req = https.get(url, { timeout: timeoutMs, headers: { accept: "text/html", "user-agent": `hcode/${VERSION}` }, signal }, res => {
       if ([301, 302, 303, 307, 308].includes(res.statusCode || 0)) {
         res.resume();
         if (redirects >= 2) { reject(new Error("search provider redirected too many times")); return; }

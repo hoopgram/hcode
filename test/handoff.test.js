@@ -80,6 +80,8 @@ test("the restart line is generated from the process and never carries a secret"
   // No hcode on PATH: the line names the script that is actually running rather than a command that is not there.
   assert.match(restartCommand({ cwd: "/w", task: "t", argv: ["/usr/bin/node", "/opt/hcode/bin/hcode.js"], env: {}, lookup: () => null }),
     /node \/opt\/hcode\/bin\/hcode\.js "\/continue t"/);
+  assert.match(restartCommand({ cwd: "/w", task: "t", argv: ["/opt/hcode", "/opt/hcode"], execPath: "/opt/hcode", native: true, env: {}, lookup: () => null }),
+    /\/opt\/hcode "\/continue t"/);
   // A directory with a space keeps its shorthand instead of losing it: `~` cannot expand inside quotes.
   assert.match(restartCommand({ cwd: path.join(os.homedir(), "my projects"), task: "t", argv: [], env: {}, lookup: () => "x" }),
     /^cd "\$HOME\/my projects" && hcode/);

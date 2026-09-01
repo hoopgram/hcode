@@ -3,6 +3,7 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { HOME } from "./config.js";
+import { runtimeAsset } from "./runtime.js";
 
 export const AGENCY_CANON_SHA256 = "988cbfe084ba74b174d89e35b112ce91a697501d6c55791b8d5babae2dec22e3";
 export const AGENCY_KINDS = ["overspend", "delete_owner_data", "constitution_wording", "new_public_exposure", "owner_intent_conflict", "technical_uncertainty"];
@@ -12,7 +13,7 @@ export function agencyCanonPath() {
 }
 
 export function loadAgencyCanon(file = agencyCanonPath()) {
-  const text = fs.readFileSync(file, "utf8");
+  const text = file === agencyCanonPath() ? runtimeAsset("FULL-AGENCY.md", file) : fs.readFileSync(file, "utf8");
   const hash = createHash("sha256").update(text).digest("hex");
   if (hash !== AGENCY_CANON_SHA256) throw new Error(`FULL_AGENCY_RED canonical authorization hash ${hash} != ${AGENCY_CANON_SHA256}`);
   return text;

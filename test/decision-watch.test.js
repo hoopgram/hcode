@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 
-const watcher = new URL("../../../tools/hcode-decision-watch.mjs", import.meta.url).pathname;
+const watcher = new URL("../scripts/hcode-decision-watch.mjs", import.meta.url).pathname;
 function executable(file, body) { fs.writeFileSync(file, `#!/bin/sh\n${body}\n`, { mode: 0o755 }); }
 function run(root, now, state = "decision") {
   const tui = path.join(root, "tui"), notify = path.join(root, "notify"), calls = path.join(root, "calls");

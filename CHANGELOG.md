@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+## 0.10.1 — 2026-09-01 — 金箍醒来
+
+- **Hoop Code now arrives with one bounded identity beat.** A live composer terminal opens on the canonical HoopGram gold translated into cells: an open Hoop with inward curls around hcode's robot face, then an eight-frame luminous charge edge crosses a short bar before the ordinary dialog takes the screen. Wide terminals place the same mark left of version, brain, workspace and permission facts; narrow terminals stack them without dropping a fact. Pipes, `--print`, CI, dumb/no-color terminals and `HCODE_REDUCE_MOTION` never animate, and the final clear leaves no loading furniture in the conversation.
+- **One release is now mechanically one source.** Four read-only host runners each build and execute their own native artifact; an atomic assembler refuses missing targets, dirty or mismatched source facts, unverified probes and changed bytes before producing the canonical filenames, combined manifest, installer and checksums. Candidate CI still has no tag, Release or npm permission.
+
+## 0.10.0 — 2026-09-01 — 原生双轨
+
+- **Source and native hcode now share one self-runtime boundary.** Background tasks, `/update`, work supervision, public benchmarks and polyglot runs relaunch the current executable through `runtime.js` instead of each rebuilding `node bin/hcode.js`; the Full Agency charter is a source file in development and an embedded SEA asset in native builds. One executable also preserves the `hcode-supervise` contract through its invocation name, while source/npm users keep the existing entrypoint.
+
+- **The native build is a pinned four-target recipe, not an opaque uploaded executable.** One exact build-only `esbuild` version turns the ESM tree into one CommonJS release input; the established SEA/postject path injects it into Node 24.20.0 LTS for macOS arm64/x64 and Linux arm64/x64. Each official runtime archive is checked against its frozen SHA-256 before use. The generated manifest binds every file to version, source commit/tree, build host, byte size and digest, while leaving `verified:false` until that exact file has run on its target platform. The newer direct ESM/`--build-sea` route is deliberately not a 0.10.0 dependency.
+
+- **One version now has two supported entrances, not two products.** npm keeps shipping the zero-third-party-runtime source path for Node ≥ 20 and remains the default on macOS until Developer ID notarization exists. Native installation verifies a clean source-bound manifest, size, SHA-256, target and an executed version probe before copying into an immutable version directory; only then does one atomic symlink move. `/update` follows the current channel, `hcode rollback` swaps to the last verified native version, and Nix refuses self-mutation. The four-runner GitHub matrix only builds and verifies temporary candidates—there is deliberately no release or publish job.
+
 - **The public repository now has one ten-minute architecture map.** `ARCHITECTURE.md` follows an owner request through the agent loop, draws responsibility and trust boundaries, explains the composer/readline/plain render paths, records why `cli.js` is expensive to touch, and routes common changes to the right files and tests. README and handoffs point to this one map instead of maintaining parallel file lists that drift.
 
 - **The three render paths now share an explicit semantic test, not a duplicated strings module.** One table drives read, search, edit, command and delegation activity through the readline surface, verifies that the composer receives the same active label and kind, and keeps the plain sink free of ANSI and carriage returns. The existing real-tmux geometry gate and no-fourth-painter check remain the stronger screen-level protection; `cli.js` stays intact until those contracts justify a separate refactor.

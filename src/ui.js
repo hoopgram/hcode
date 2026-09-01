@@ -4,10 +4,12 @@
 import { WAITING_ROTATION_MS, musing, waitingStart, waitingWord } from "./musings.js";
 import { presence, TICK_MS } from "./presence.js";
 import { matchedCommandToken } from "./commands.js";
-import { wrapText } from "./frame.js";
+import { displayWidth, wrapText } from "./frame.js";
+import { chargeBar, robotHoopRows, robotHoopSplashRows, ROBOT_HOOP_WIDTH } from "./brand.js";
 import { VERSION } from "./config.js";
 
 const has = (obj, key) => Object.prototype.hasOwnProperty.call(obj || {}, key);
+const CLEAR_SCREEN = "\x1b[2J\x1b[3J\x1b[H";
 
 // The second is the unit the meter is read in, so it is the rate the waiting row repaints at —
 // the same beat presence uses to say an elapsed clock has moved, borrowed rather than guessed.
@@ -91,6 +93,7 @@ export function createPalette(enabled = false) {
     green: value => paint("38;5;71", value),
     cyan: value => paint("38;5;75", value),
     yellow: value => paint("38;5;214", value),
+    glow: value => paint("1;38;2;255;212;79", value),
     brand: value => paint("1;38;5;208", value),
     key: value => paint("1;38;5;214", value),
     command: value => paint("1;38;2;169;120;0", value),
@@ -259,6 +262,7 @@ export function createUI({ out = process.stdout, err = process.stderr, env = pro
   const writeError = value => composer ? composer.print(String(value) + "\n", err) : err.write(String(value) + "\n");
   const live = supportsColor(out, env);
   const width = Math.max(24, Number(columns || out.columns || 80));
+  const center = value => " ".repeat(Math.max(0, Math.floor((width - displayWidth(value)) / 2))) + value;
   // Answers get the same two columns of margin the dialog gives everything else, and they stop
   // short of the right edge: a paragraph that touches both walls of the terminal is harder to
   // read than one that breathes, and a line that wraps at the edge wraps again on every zoom.
@@ -353,6 +357,27 @@ export function createUI({ out = process.stdout, err = process.stderr, env = pro
   };
 
   const terminal = {
+    async splash({ frames = 8, frameMs = 36, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)) } = {}) {
+      const reduced = has(env, "HCODE_REDUCE_MOTION") || has(env, "REDUCE_MOTION") || String(env?.HCODE_SPLASH || "").toLowerCase() === "0";
+      if (!live || composer || reduced || has(env, "CI")) return false;
+      const count = Math.max(1, Math.min(12, Number(frames) || 8));
+      const height = Math.max(12, Number(out.rows) || 24); const barCells = Math.max(8, Math.min(24, width - 4));
+      const mark = width >= 48 ? robotHoopSplashRows(paper) : robotHoopRows(paper);
+      const top = Math.max(1, Math.floor((height - mark.length - 5) / 2));
+      for (let frame = 0; frame < count; frame++) {
+        const rows = [
+          ...Array.from({ length: top }, () => ""),
+          ...mark.map(center),
+          "",
+          center(`${paper.brand("HOOP CODE")} ${paper.dim(VERSION)}`),
+          center(chargeBar(frame, count, paper, barCells)),
+        ];
+        out.write(CLEAR_SCREEN + rows.join("\n"));
+        await sleep(Math.max(0, Number(frameMs) || 0));
+      }
+      out.write(CLEAR_SCREEN);
+      return true;
+    },
     banner(cfg, sessionId, context = {}) {
       const details = typeof context === "string" ? { legacy: context } : context;
       const runner = inline(details.runner || cfg.runner || "hcode");
@@ -360,18 +385,38 @@ export function createUI({ out = process.stdout, err = process.stderr, env = pro
       // A live session starts on a clean screen: erase the visible page and the scrollback so
       // earlier shell history is not mistaken for part of this conversation. Plain sinks keep
       // every byte (nothing to clear, and scripts must not receive control sequences).
-      if (live) { composer?.resetTranscript?.(); write("\x1b[2J\x1b[3J\x1b[H"); }
+      if (live) { composer?.resetTranscript?.(); write(CLEAR_SCREEN); }
       // A greeting, then the machine facts, then one quiet line from the local Tao selection.
       // It is presented as the text itself, never as a claim about what the machine thought while
       // nobody was here. Warm enough to be noticed, quiet enough to be declined.
       const pad = line => "  " + line;
       const compact = `${visiblePath(cfg.cwd, env)} · ${runner === "hcode" ? "Hoop Code" : runner === "codex" ? "Codex" : "Claude Code"} · ${modeLabel(cfg.mode)}`;
       writeLine();
-      writeLine(pad(paper.brand("○ Welcome to Hoop")));
-      writeLine(pad("Your machine. Your work."));
-      writeLine(pad(paper.dim(`hoop: ${inline(cfg.hoopName) || "not linked yet"}`)));
-      writeLine(pad(paper.sand(`${VERSION} · 菊与刀`)));
-      writeLine(pad(paper.dim(compact)));
+      if (live) {
+        const runnerName = runner === "hcode" ? "Hoop Code" : runner === "codex" ? "Codex" : "Claude Code";
+        const brain = runner === "hcode" ? inline(cfg.model) || "model not selected" : runnerName;
+        const metadata = [
+          { plain: `Hoop Code ${VERSION}`, painted: `${paper.brand("Hoop Code")} ${paper.dim(VERSION)}` },
+          { plain: `${brain} · ${inline(cfg.effort || "high")} effort · ${modeLabel(cfg.mode)}`, painted: `${paper.sand(brain)} · ${paper.bold(inline(cfg.effort || "high"))} effort · ${paper.gold(modeLabel(cfg.mode))}` },
+          { plain: visiblePath(cfg.cwd, env), painted: paper.dim(visiblePath(cfg.cwd, env)) },
+          { plain: `hoop: ${inline(cfg.hoopName) || "not linked yet"}`, painted: paper.dim(`hoop: ${inline(cfg.hoopName) || "not linked yet"}`) },
+          { plain: "Your machine. Your work.", painted: "Your machine. Your work." },
+        ];
+        const mark = robotHoopRows(paper); const longest = Math.max(...metadata.map(row => displayWidth(row.plain)));
+        if (width >= ROBOT_HOOP_WIDTH + longest + 6) {
+          for (let index = 0; index < mark.length; index++) writeLine(`  ${mark[index]}  ${metadata[index].painted}`);
+        } else {
+          for (const row of mark) writeLine(pad(row));
+          writeLine();
+          for (const row of metadata) writeLine(pad(row.painted));
+        }
+      } else {
+        writeLine(pad(paper.brand("○ Welcome to Hoop")));
+        writeLine(pad("Your machine. Your work."));
+        writeLine(pad(paper.dim(`hoop: ${inline(cfg.hoopName) || "not linked yet"}`)));
+        writeLine(pad(paper.sand(`${VERSION} · 菊与刀`)));
+        writeLine(pad(paper.dim(compact)));
+      }
       writeLine();
       writeLine(pad(paper.sand(`「${musing()}」`)));
       writeLine();

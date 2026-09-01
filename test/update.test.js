@@ -12,7 +12,7 @@ const HOME_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "hcode-update-home-"));
 process.env.HCODE_HOME = HOME_DIR;               // must be set before ../src/update.js computes STATE_FILE
 const STATE_FILE = path.join(HOME_DIR, "update", "state.json");
 
-const { locateInstallRoot, readGitState, planUpdate, runUpdate, readVersion, updateSummaryLine, readUpdateState, startBackgroundUpdate } =
+const { compareVersions, locateInstallRoot, readGitState, planUpdate, runNativeUpdate, runUpdate, readVersion, updateSummaryLine, readUpdateState, startBackgroundUpdate } =
   await import("../src/update.js");
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "hcode-update-"));
@@ -198,4 +198,21 @@ test("startBackgroundUpdate does not spawn a second worker while one is already 
   const second = startBackgroundUpdate({ spawnImpl });
   assert.equal(spawns, 1);
   assert.equal(second.startedAt, first.startedAt);
+});
+
+test("native update downloads verified bytes, switches once, and rejects a bad digest without moving current", async () => {
+  assert.equal(compareVersions("0.10.0", "0.9.4"), 1); assert.equal(compareVersions("0.9.4", "0.9.4"), 0);
+  const dir = tmp(), root = path.join(dir, "share"), binDir = path.join(dir, "bin"), target = `${process.platform}-${process.arch}`;
+  const candidate = Buffer.from("#!/bin/sh\nprintf '9.9.9\\n'\n");
+  const digest = (await import("node:crypto")).createHash("sha256").update(candidate).digest("hex");
+  const manifest = { schema: 1, product: "hcode", version: "9.9.9", source: { dirty: false, commit: "a".repeat(40), hcodeTree: "b".repeat(40) },
+    artifacts: [{ target, file: `hcode-v9.9.9-${target}`, bytes: candidate.length, sha256: digest, verified: true }] };
+  const fetchImpl = async url => new Response(String(url).endsWith("native-manifest.json") ? JSON.stringify(manifest) : candidate);
+  const result = await runNativeUpdate({ baseUrl: "https://release.test/", fetchImpl, root, binDir, target });
+  assert.equal(result.ok, true); assert.equal(result.newVersion, "9.9.9"); assert.equal(fs.realpathSync(path.join(binDir, "hcode")), fs.realpathSync(path.join(root, "versions", "9.9.9", "hcode")));
+  const before = fs.realpathSync(path.join(root, "current"));
+  const broken = { ...manifest, version: "9.9.10", artifacts: [{ ...manifest.artifacts[0], file: `hcode-v9.9.10-${target}`, sha256: "0".repeat(64) }] };
+  const badFetch = async url => new Response(String(url).endsWith("native-manifest.json") ? JSON.stringify(broken) : candidate);
+  await assert.rejects(() => runNativeUpdate({ baseUrl: "https://release.test/", fetchImpl: badFetch, root, binDir, target }), /sha256/);
+  assert.equal(fs.realpathSync(path.join(root, "current")), before);
 });

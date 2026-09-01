@@ -4,6 +4,7 @@ import { TURN_METER_MS, createPalette, createUI, formatElapsed, formatSpend, for
 import { MUSINGS, WAITING_WORDS, musing, waitingWord } from "../src/musings.js";
 import { Presence } from "../src/presence.js";
 import { displayWidth } from "../src/frame.js";
+import { CHARGE_CELLS, HOOP_GOLD, robotHoopRows, robotHoopSplashRows } from "../src/brand.js";
 
 const ESC_OR_CR = /[\x1b\r]/;
 const UNSAFE_CONTROL = /[\x00-\x09\x0b-\x1f\x7f-\x9f]/;
@@ -57,6 +58,46 @@ test("the home palette gives semantic roles distinct contrast", () => {
   assert.equal(palette.sand("x"), "\x1b[38;5;179mx\x1b[0m");
   assert.equal(palette.lavender("x"), "\x1b[38;5;140mx\x1b[0m");
   assert.equal(createPalette(false).sand("x"), "x", "a plain sink still receives no bytes it did not ask for");
+});
+
+test("the canonical golden Hoop becomes one stable robot mark and one moving charge edge", () => {
+  assert.deepEqual(HOOP_GOLD, { light: "#FFD44F", middle: "#F5B301", dark: "#C9920A" });
+  const mark = robotHoopRows();
+  assert.equal(mark.length, 5); assert.ok(mark.every(row => displayWidth(row) === 16), "the dialog mark has fixed terminal geometry");
+  assert.match(mark.join("\n"), /╭────────╮[\s\S]*● ●[\s\S]*╰─╮└────┘╭─╯/, "an open Hoop with inward curls surrounds a robot face");
+  const splash = robotHoopSplashRows();
+  assert.equal(splash.length, 11); assert.ok(splash.every(row => displayWidth(row) === 40), "the launch mark stays centered without geometry drift");
+  assert.match(splash.join("\n"), /╭────────────────────────╮[\s\S]*●        ●[\s\S]*╰╮      ╭╯/);
+  assert.equal(CHARGE_CELLS, 24);
+});
+
+test("launch splash charges only a live motion-enabled terminal and erases itself", async () => {
+  const out = sink({ isTTY: true, columns: 80 }); out.rows = 24;
+  const terminal = createUI({ out, err: sink(), env: { TERM: "xterm-256color" } });
+  assert.equal(await terminal.splash({ frames: 4, frameMs: 0, sleep: async () => {} }), true);
+  assert.equal(out.text.match(/\x1b\[2J\x1b\[3J\x1b\[H/g)?.length, 5, "four frames plus one final clean screen");
+  assert.match(out.text, /\x1b\[1;38;2;255;212;79m/, "the moving edge uses the SVG's luminous gold");
+  assert.match(stripAnsi(out.text), /HOOP CODE[\s\S]*╺[█▓·]+╸/);
+
+  for (const [name, quietOut, env] of [
+    ["plain", sink(), { TERM: "xterm-256color" }],
+    ["reduced", sink({ isTTY: true }), { TERM: "xterm-256color", HCODE_REDUCE_MOTION: "1" }],
+    ["ci", sink({ isTTY: true }), { TERM: "xterm-256color", CI: "1" }],
+  ]) {
+    const quiet = createUI({ out: quietOut, err: sink(), env });
+    assert.equal(await quiet.splash({ sleep: async () => {} }), false, `${name} does not animate`);
+    assert.equal(quietOut.text, "");
+  }
+});
+
+test("live welcome places the Hoop robot left of the dialog identity on a wide terminal", () => {
+  const out = sink({ isTTY: true, columns: 120 });
+  const terminal = createUI({ out, err: sink(), env: { TERM: "xterm-256color", HOME: "/Users/owner" } });
+  terminal.banner({ cwd: "/Users/owner/Projects/hcode", hoopName: "xingyun", model: "deepseek-v4-pro", effort: "high", mode: "all", runner: "hcode" }, "s");
+  const text = stripAnsi(out.text);
+  assert.match(text, /╭────────╮\s+Hoop Code 0\.10\./);
+  assert.match(text, /● ●/); assert.match(text, /deepseek-v4-pro · high effort · full agency/);
+  assert.match(text, /~\/Projects\/hcode/); assert.match(text, /hoop: xingyun/); assert.match(text, /Your machine\. Your work\./);
 });
 
 test("input colour has explicit, hinted and honest-auto theme paths", () => {

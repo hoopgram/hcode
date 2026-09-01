@@ -25,7 +25,7 @@ import { TOOL_CONTRACT } from "./tools.js";
 import { listRunners, removeRunner, addRunner, findBinary, runExternal, lastForeignSession, assertSafeExternalWorkspace } from "./runners.js";
 import { brainChoices, needsBrainSetup, resolveBrainChoice, saveRunner, saveDefaultHoop, forgetDefaultHoop } from "./brain.js";
 import { startTask, sendTask, stopTask, readTask, listTasks, taskTranscript, taskSummary, runTaskWorker, spendGateFor } from "./tasks.js";
-import { locateInstallRoot, runUpdate, runUpdateWorker, startBackgroundUpdate, readUpdateState, updateSummaryLine } from "./update.js";
+import { locateInstallRoot, rollbackNative, runNativeUpdate, runUpdate, runUpdateWorker, startBackgroundUpdate, readUpdateState, updateSummaryLine } from "./update.js";
 import { loginHoop, logoutHoop, loadHoopSession, applyHoopSession, describeHoopSession } from "./auth.js";
 import * as sandbox from "./sandbox.js";
 import { ui, color, renderDiff } from "./ui.js";
@@ -51,9 +51,11 @@ import { SnapshotStore, openRewind, reclaimOnClose, reclaimSnapshots, formatRecl
 import { runMission } from "./mission.js";
 import { loadAgencyCanon, decideEscalation, applyAgencyGrant } from "./agency.js";
 import { presence } from "./presence.js";
+import { installNativeCandidate } from "./native-install.js";
+import { isNativeRuntime } from "./runtime.js";
 
 // A function, not a constant: the owner's own commands join the catalog while a session is running.
-const helpText = () => `○ Welcome to Hoop ${VERSION} — HoopGram's AI coding agent (zero dependencies)
+const helpText = () => `○ Welcome to Hoop ${VERSION} — self-contained AI coding agent (zero third-party runtime packages)
 
 usage: hcode [options] ["task"]
        hcode -p "task"                 non-interactive; prints the answer, exit code 0/1
@@ -68,7 +70,8 @@ usage: hcode [options] ["task"]
        hcode status [hoop]             workspace + brain + the same account facts as hcode account
        hcode setup                     connect the hcode coordinator through HoopGram, API, or your own Hoop
        hcode doctor [--json]           check config, brain, sandbox, policy, runners — in plain words
-       hcode update                    fast-forward hcode's own source checkout (local git only, no npm, no sudo)
+       hcode update                    update the current channel atomically (native release or source fast-forward)
+       hcode rollback                  switch a native install to its previous verified version
        hcode demo                      render one scripted turn (no brain, no ssh) to look at the dialog shape
        hcode sessions [--reclaim]      list recent sessions (--reclaim frees snapshot blobs no thread names)
        hcode cost [--days N]           token use across every saved session: four classes, then the biggest sessions
@@ -355,6 +358,9 @@ export async function main(argv) {
   let cfg;
   try { cfg = loadConfig(args); } catch (e) { ui.error(e.message); return 64; }
   ensureHome();
+  // The identity beat belongs to launch itself, before a remembered Hoop opens a tunnel or setup
+  // asks a question. Explicit subcommands/tasks stay immediate; an interactive resume still wakes.
+  if (!sub && !args.print && !args.unattended && supportsComposer(process.stdin, process.stdout, process.env)) await ui.splash();
   const policy = loadPolicy(cfg.cwd);
   const offerStartupPermission = !cfg.modeExplicit && !policy.mode && !args.fullAgency && args.agencyLevel === undefined;
   if (policy.mode && !cfg.modeExplicit) {
@@ -438,9 +444,22 @@ export async function main(argv) {
   // here (an owner who typed `hcode update` is already waiting); /update backgrounds the same logic.
   if (sub === "update") {
     try {
-      const result = runUpdate({ root: locateInstallRoot() });
-      if (result.ok) { console.log(result.oldHead === result.newHead ? `already current (${result.newVersion})` : `updated ${result.oldVersion} → ${result.newVersion} (${result.changedFiles} file${result.changedFiles === 1 ? "" : "s"} changed)`); return 0; }
+      const result = isNativeRuntime() ? await runNativeUpdate() : runUpdate({ root: locateInstallRoot() });
+      if (result.ok) { console.log(result.changedFiles === 0 ? `already current (${result.newVersion})` : `updated ${result.oldVersion} → ${result.newVersion} (${result.changedFiles} file${result.changedFiles === 1 ? "" : "s"} changed)`); return 0; }
       ui.error(`update refused: ${result.message}`); return 1;
+    } catch (error) { ui.error(error.message); return 1; }
+  }
+  if (sub === "rollback") {
+    const result = rollbackNative();
+    if (result.ok) { console.log(`rolled back ${result.oldVersion} → ${result.newVersion}`); return 0; }
+    ui.error(`rollback refused: ${result.message}`); return 1;
+  }
+  if (sub === "_install-native") {
+    try {
+      const candidate = args._[1], manifestFile = args._[2];
+      if (!candidate || !manifestFile) throw new Error("usage: hcode _install-native BINARY MANIFEST");
+      const state = installNativeCandidate(path.resolve(candidate), JSON.parse(fs.readFileSync(path.resolve(manifestFile), "utf8")));
+      console.log(`installed hcode ${state.current}; restart the shell if ~/.local/bin is new to PATH`); return 0;
     } catch (error) { ui.error(error.message); return 1; }
   }
   if (sub === "_update-worker") {

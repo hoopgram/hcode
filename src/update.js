@@ -11,10 +11,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import { execFileSync, spawn } from "node:child_process";
+import os from "node:os";
 import { fileURLToPath } from "node:url";
-import { HOME } from "./config.js";
+import { HOME, VERSION } from "./config.js";
+import { isNativeRuntime, isNixRuntime, selfCommand } from "./runtime.js";
+import { DEFAULT_BIN_DIR, DEFAULT_INSTALL_ROOT, installNativeCandidate, nativeTarget, rollbackNativeInstall, validateNativeManifest } from "./native-install.js";
 
-const BIN = fileURLToPath(new URL("../bin/hcode.js", import.meta.url));
 const STATE_DIR = path.join(HOME, "update");
 const STATE_FILE = path.join(STATE_DIR, "state.json");
 
@@ -91,6 +93,48 @@ export function runUpdate({ root, git = defaultGit } = {}) {
   return { ok: true, root, oldVersion: before.version, newVersion: after.version, oldHead: before.head, newHead: after.head, changedFiles };
 }
 
+const DEFAULT_NATIVE_RELEASE = "https://github.com/hoopgram/hcode/releases/latest/download/";
+const versionCore = value => String(value).split(/[+-]/, 1)[0].split(".").map(Number);
+export function compareVersions(a, b) {
+  const left = versionCore(a), right = versionCore(b);
+  for (let i = 0; i < 3; i++) if ((left[i] || 0) !== (right[i] || 0)) return (left[i] || 0) > (right[i] || 0) ? 1 : -1;
+  return 0;
+}
+async function boundedFetch(url, { fetchImpl = fetch, maxBytes = 200 * 1024 * 1024 } = {}) {
+  const response = await fetchImpl(url, { redirect: "follow" });
+  if (!response.ok) throw new Error(`download failed (${response.status})`);
+  const length = Number(response.headers?.get?.("content-length") || 0);
+  if (length > maxBytes) throw new Error("download exceeds the native update size limit");
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  if (bytes.byteLength > maxBytes) throw new Error("download exceeds the native update size limit");
+  return bytes;
+}
+
+export async function runNativeUpdate({ baseUrl = process.env.HCODE_UPDATE_BASE_URL || DEFAULT_NATIVE_RELEASE, fetchImpl = fetch,
+  root = DEFAULT_INSTALL_ROOT, binDir = DEFAULT_BIN_DIR, target = nativeTarget(), spawnImpl } = {}) {
+  if (isNixRuntime()) return { ok: false, reason: "nix-managed", message: "this hcode is Nix-managed; update it through the owning flake/profile" };
+  const stage = fs.mkdtempSync(path.join(os.tmpdir(), "hcode-native-update-"));
+  try {
+    const base = new URL(baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`);
+    if (base.protocol !== "https:" && !["127.0.0.1", "localhost"].includes(base.hostname)) throw new Error("native updates require HTTPS");
+    const manifestBytes = await boundedFetch(new URL("native-manifest.json", base), { fetchImpl, maxBytes: 1024 * 1024 });
+    const manifest = JSON.parse(Buffer.from(manifestBytes).toString("utf8"));
+    const { version, artifact } = validateNativeManifest(manifest, { target });
+    if (version === VERSION) return { ok: true, oldVersion: VERSION, newVersion: VERSION, changedFiles: 0 };
+    if (compareVersions(version, VERSION) < 0) throw new Error(`latest native manifest ${version} is older than the running ${VERSION}`);
+    const candidate = path.join(stage, artifact.file);
+    fs.writeFileSync(candidate, await boundedFetch(new URL(artifact.file, base), { fetchImpl }), { mode: 0o700 });
+    const installed = installNativeCandidate(candidate, manifest, { root, binDir, target, spawnImpl });
+    return { ok: true, oldVersion: VERSION, newVersion: installed.current, changedFiles: 1, sha256: installed.sha256 };
+  } finally { fs.rmSync(stage, { recursive: true, force: true }); }
+}
+
+export function rollbackNative(options = {}) {
+  if (!isNativeRuntime() && !options.allowSourceTest) return { ok: false, reason: "source", message: "source/npm hcode uses Git/npm rollback; native rollback is unavailable" };
+  try { const state = rollbackNativeInstall(options); return { ok: true, oldVersion: state.previous, newVersion: state.current, changedFiles: 1 }; }
+  catch (error) { return { ok: false, reason: "rollback-failed", message: firstLine(error) }; }
+}
+
 function firstLine(error) { return String(error?.message || error).split("\n")[0]; }
 
 function atomicWrite(file, value) {
@@ -110,7 +154,7 @@ export function updateSummaryLine(state) {
   if (!state) return "update: nothing has run yet";
   if (state.status === "queued" || state.status === "running") return `update ${state.status} — started ${Math.max(0, Math.round((Date.now() - state.startedAt) / 1000))}s ago`;
   const result = state.result;
-  if (result?.ok) return result.oldHead === result.newHead ? `update: already current (${result.newVersion})` : `update: ${result.oldVersion} → ${result.newVersion} (${result.changedFiles} file${result.changedFiles === 1 ? "" : "s"} changed)`;
+  if (result?.ok) return result.changedFiles === 0 || (result.oldHead && result.oldHead === result.newHead) ? `update: already current (${result.newVersion})` : `update: ${result.oldVersion} → ${result.newVersion} (${result.changedFiles} file${result.changedFiles === 1 ? "" : "s"} changed)`;
   return `update: ${result?.message || state.error || "did not complete"}`;
 }
 
@@ -122,7 +166,8 @@ export function startBackgroundUpdate({ env = process.env, spawnImpl = spawn } =
   if (previous && ["queued", "running"].includes(previous.status)) return previous;
   const state = { v: 1, status: "queued", startedAt: Date.now(), updatedAt: Date.now() };
   atomicWrite(STATE_FILE, state);
-  const child = spawnImpl(process.execPath, [BIN, "_update-worker"], { detached: true, stdio: "ignore", cwd: "/", env });
+  const self = selfCommand(["_update-worker"]);
+  const child = spawnImpl(self.command, self.args, { detached: true, stdio: "ignore", cwd: "/", env });
   child.unref();
   return state;
 }
@@ -132,7 +177,7 @@ export async function runUpdateWorker({ git = defaultGit } = {}) {
   const state = readUpdateState() || { v: 1, status: "queued", startedAt: Date.now() };
   atomicWrite(STATE_FILE, { ...state, status: "running", updatedAt: Date.now() });
   let result;
-  try { result = runUpdate({ root: locateInstallRoot(undefined, { git }), git }); }
+  try { result = isNativeRuntime() ? await runNativeUpdate() : runUpdate({ root: locateInstallRoot(undefined, { git }), git }); }
   catch (error) { result = { ok: false, reason: "error", message: firstLine(error) }; }
   atomicWrite(STATE_FILE, { ...state, status: "done", result, updatedAt: Date.now(), finishedAt: Date.now() });
   return result;

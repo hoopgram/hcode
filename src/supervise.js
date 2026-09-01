@@ -3,11 +3,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import { HOME } from "./config.js";
 import { CoordinatorStore } from "./coordinator.js";
+import { selfArgv, selfCommand } from "./runtime.js";
 
-const BIN = fileURLToPath(new URL("../bin/hcode.js", import.meta.url));
 const WORK_ID = /^work-[a-z0-9]{8,32}$/;
 const GATE_ID = /^[a-z][a-z0-9-]{0,31}$/;
 const safe = (value, label, pattern) => { const text = String(value || ""); if (!pattern.test(text)) throw new Error(`invalid ${label}`); return text; };
@@ -128,11 +127,12 @@ export function launchSupervisor(store, { env = process.env, tmux = false } = {}
   let pid, tmuxSession = null;
   if (tmux) {
     tmuxSession = tmuxSessionName(store.id, "supervisor");
-    const launched = spawnSync("tmux", ["new-session", "-d", "-P", "-F", "#{pane_pid}", "-s", tmuxSession, "--", process.execPath, BIN, "_work-supervisor", store.id, store.contract.cwd, "--tmux"], { cwd: store.contract.cwd, env, encoding: "utf8", timeout: 5000 });
+    const launched = spawnSync("tmux", ["new-session", "-d", "-P", "-F", "#{pane_pid}", "-s", tmuxSession, "--", ...selfArgv(["_work-supervisor", store.id, store.contract.cwd, "--tmux"])], { cwd: store.contract.cwd, env, encoding: "utf8", timeout: 5000 });
     if (launched.status !== 0 || !Number.isInteger(Number(launched.stdout.trim()))) throw new Error(`tmux supervisor failed to start: ${(launched.stderr || "unknown error").trim()}`);
     pid = Number(launched.stdout.trim());
   } else {
-    const child = spawn(process.execPath, [BIN, "_work-supervisor", store.id, store.contract.cwd], { detached: true, stdio: "ignore", cwd: store.contract.cwd, env });
+    const self = selfCommand(["_work-supervisor", store.id, store.contract.cwd]);
+    const child = spawn(self.command, self.args, { detached: true, stdio: "ignore", cwd: store.contract.cwd, env });
     child.unref(); pid = child.pid;
   }
   const state = { v: 1, pid, workId: store.id, startedAt: Date.now(), tmux, tmuxSession };

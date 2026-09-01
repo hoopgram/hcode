@@ -18,6 +18,7 @@ import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
 import { VERSION } from "./config.js";
+import { isNativeRuntime, runtimeLabel } from "./runtime.js";
 import { currentMode } from "./modes.js";
 import { runFixedCommand } from "./fixed-command.js";
 
@@ -67,11 +68,11 @@ export const archiveDir = (root, now = Date.now()) => {
 // ---- the restart line ---------------------------------------------------------------------------
 // One line, one paste: cd there and continue. It never carries a credential — CARRY_ENV is filtered a
 // second time by name and by value shape, so a variable that was renamed into the list cannot leak.
-export function restartCommand({ cwd, task, argv = process.argv, env = process.env, flags = [], home = os.homedir(), lookup = null } = {}) {
+export function restartCommand({ cwd, task, argv = process.argv, env = process.env, flags = [], home = os.homedir(), lookup = null, native = isNativeRuntime(), execPath = process.execPath } = {}) {
   const script = String(argv[1] || "");
   const base = path.basename(script).replace(/\.js$/, "");
   const onPath = typeof lookup === "function" ? lookup("hcode", env) : null;
-  const launcher = base === "hcode" && onPath ? "hcode" : base === "hcode" ? `node ${quote(short(path.resolve(script), home))}` : "hcode";
+  const launcher = base === "hcode" && onPath ? "hcode" : native ? quote(short(path.resolve(execPath), home)) : base === "hcode" ? `node ${quote(short(path.resolve(script), home))}` : "hcode";
   const carried = CARRY_ENV
     .filter(name => !SECRET_ENV.test(name) && env[name] && SAFE_ENV_VALUE.test(String(env[name])))
     .map(name => `${name}=${quote(short(String(env[name]), home))}`);
@@ -182,7 +183,7 @@ export function ledgerBody({ session, cfg = {}, task, status = "active", mode = 
       ...e.questions.map(row => `waiting on an answer: ${row}`),
     ], "nothing was left running — write the next step here before handing this over"),
     ...section("3. 已核实版本 / Verified versions and hashes", [
-      `hcode ${VERSION} · node ${process.version} · brain ${cfg.model || session.header?.model || "unknown"} · effort ${cfg.effort || "high"} · permission ${cfg.mode || "ask"}`,
+      `hcode ${VERSION} · ${runtimeLabel()} · brain ${cfg.model || session.header?.model || "unknown"} · effort ${cfg.effort || "high"} · permission ${cfg.mode || "ask"}`,
       `workspace ${cfg.cwd || session.header?.cwd || process.cwd()}`,
       ...facts.filter(Boolean),
       ...contextHashes(cfg.cwd || session.header?.cwd || process.cwd()),

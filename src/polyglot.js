@@ -7,14 +7,13 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { HOME } from "./config.js";
 import { externalRunnerEnv, findBinary } from "./runners.js";
 import { runMeasured, extractText, extractUsage } from "./benchmark.js";
+import { selfCommand } from "./runtime.js";
 
 export const POLYGLOT_VERSION = "hcode-polyglot-v1";
 export const POLYGLOT_REPO = "https://github.com/Aider-AI/polyglot-benchmark";
-const BIN = fileURLToPath(new URL("../bin/hcode.js", import.meta.url));
 const LANGS = {
   javascript: { test: (ws, tools) => ({ command: tools.jest, args: ["--ci", "--silent", "--rootDir", ws, ...fs.readdirSync(ws).filter(f => f.endsWith(".spec.js"))] }) },
   python: { test: (ws, tools, files) => ({ command: tools.python, args: ["-m", "pytest", "-x", "-q", "--no-header", "-p", "no:cacheprovider", ...files] }) },
@@ -84,7 +83,7 @@ export function runnerCommand(id, cfg, ws, prompt, { budgetUsd = 2, models = {} 
   if (id === "hcode") {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "hcode-polyglot-home-")); const sessionsDir = path.join(home, "sessions");
     const env = { ...process.env, NO_COLOR: "1", HCODE_HOME: home, HCODE_SESSIONS: sessionsDir, HCODE_BASE_URL: cfg.baseUrl, HCODE_API_KEY: cfg.apiKey, HCODE_MODEL: models.hcode || cfg.model, HCODE_EFFORT: cfg.effort || "high", HCODE_TIMEOUT_MS: "300000" };
-    return { command: process.execPath, args: [BIN, "-p", "--mode", "auto", "--max-turns", "40", "--cwd", ws, prompt], env, sessionsDir, cleanup: home, model: models.hcode || cfg.model };
+    return { ...selfCommand(["-p", "--mode", "auto", "--max-turns", "40", "--cwd", ws, prompt]), env, sessionsDir, cleanup: home, model: models.hcode || cfg.model };
   }
   const env = { ...externalRunnerEnv(process.env), NO_COLOR: "1" };
   if (id === "codex") {

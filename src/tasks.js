@@ -5,16 +5,15 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { spawn } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import { HOME } from "./config.js";
 import { Session } from "./session.js";
 import { runExternal, lastForeignSession, listRunners, assertSafeExternalWorkspace } from "./runners.js";
 import { isFlagship, resolveSubagentModel, subagentTiers } from "./subagents.js";
 import { flagshipGate } from "./gates.js";
 import { applyAgencyGrant } from "./agency.js";
+import { selfCommand } from "./runtime.js";
 
 const ROOT = path.join(HOME, "tasks");
-const BIN = fileURLToPath(new URL("../bin/hcode.js", import.meta.url));
 const ID = /^task-[a-z0-9]{8}$/;
 
 const taskDir = id => {
@@ -45,7 +44,8 @@ export function listTasks(limit = 20) {
 }
 
 function launch(id, env = process.env) {
-  const child = spawn(process.execPath, [BIN, "_task-worker", id], {
+  const self = selfCommand(["_task-worker", id]);
+  const child = spawn(self.command, self.args, {
     detached: true, stdio: "ignore", cwd: "/", env,
   });
   child.unref();
