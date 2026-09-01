@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.10.3 — 2026-09-01 — 施工入口
+
+- **hcode now carries its own development entrance.** `DEVELOPING.md` gives humans and coding agents one
+  change-to-file/test route, states the in-process HoopOS embedding contract, scales verification by risk, and
+  keeps architecture, capability and release facts in their existing canonical documents instead of another handoff.
+
 ## 0.10.2 — 2026-09-01 — 归一更新
 
 - **Native update now means the newest installable release, not GitHub's newest stable label.** GitHub's `releases/latest` endpoint omits prereleases, which made the ad-hoc-signed native channel invisible to both a fresh installer and `/update`. Both paths now discover the highest published release carrying a manifest and this host's binary, include the preview channel until notarization exists, reject drafts/unsupported targets, and still verify the exact source, platform, size, SHA-256 and executable version before the atomic switch. Exact `HCODE_RELEASE_URL` / `HCODE_UPDATE_BASE_URL` overrides remain available for owner-controlled mirrors and recovery.

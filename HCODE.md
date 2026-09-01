@@ -1,5 +1,8 @@
 # HCODE.md — project instructions for coding agents
 
+Humans and agents start with `DEVELOPING.md`; `ARCHITECTURE.md` owns the system map. This file is the compact
+set of hard project instructions hcode injects into a coding turn, not a second development guide.
+
 ## Purpose
 
 `hcode` (Hoop Code) is HoopGram's self-contained AI coding agent for the terminal, with zero
