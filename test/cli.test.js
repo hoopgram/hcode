@@ -39,6 +39,7 @@ const run = (args, opts = {}) => new Promise(resolve => {
 function fakeBinDir() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "hcode-bin-"));
   fs.writeFileSync(path.join(dir, "claude"), `#!/bin/sh
+while IFS= read -r line; do :; done
 printf '%s\\n' '{"type":"system","session_id":"claude-sess-1"}'
 printf '%s\\n' '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"hello from claude"}}}'
 printf '%s\\n' '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"tu1","name":"Bash","input":{"command":"git status"}}]}}'
@@ -47,6 +48,7 @@ printf '%s\\n' '{"type":"result","result":"hello from claude","session_id":"clau
 echo "$@" > "$FAKE_ARGS"
 `, { mode: 0o755 });
   fs.writeFileSync(path.join(dir, "codex"), `#!/bin/sh
+while IFS= read -r line; do :; done
 printf '%s\\n' '{"type":"thread.started","thread_id":"codex-thread-9"}'
 printf '%s\\n' '{"type":"item.completed","item":{"id":"c1","type":"command_execution","command":"ls","aggregated_output":"a.txt","exit_code":0,"status":"completed"}}'
 printf '%s\\n' '{"type":"item.completed","item":{"id":"m1","type":"agent_message","text":"hello from codex"}}'
@@ -284,7 +286,7 @@ test("/command new saves a prompt and /<name> runs it in the same session", asyn
   assert.match(r.stdout, /Saved \/tidy/);
   assert.deepEqual(prompts.map(p => (typeof p === "string" ? p : p.map(b => b.text).join(""))), ["Format src/a.js and stop"]);
   assert.match(r.stdout, /\/tidy +project {2}takes args Format \$ARGUMENTS and stop/);
-  assert.match(r.stderr, /\/cost\s+is a built-in command and a built-in\s+always wins/); // wrapping never changes the contract
+  assert.match(r.stderr, /\/cost\s+is\s+a built-in command and a built-in\s+always wins/); // wrapping never changes the contract
   assert.doesNotMatch(r.stderr, /Unknown command/);
   m.close();
 });
