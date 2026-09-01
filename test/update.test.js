@@ -29,7 +29,13 @@ function commit(dir, file, content, message) {
   git(dir, ["add", "."]);
   git(dir, ["commit", "-q", "-m", message]);
 }
-function cloneRepo(origin, dir) { git(path.dirname(dir), ["clone", "-q", origin, dir]); }
+function cloneRepo(origin, dir) {
+  git(path.dirname(dir), ["clone", "-q", origin, dir]);
+  // A clone does not inherit the fixture repository's local author identity. Keep commits made by
+  // the test independent of the developer machine and of a CI runner's global Git configuration.
+  git(dir, ["config", "user.email", "t@t.test"]);
+  git(dir, ["config", "user.name", "Test"]);
+}
 function resetBackgroundState() { fs.rmSync(path.dirname(STATE_FILE), { recursive: true, force: true }); }
 
 // --- locateInstallRoot: source-position lookup, no execution ---

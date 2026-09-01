@@ -68,8 +68,13 @@ function sourceFacts() {
   const repo = run("git", ["rev-parse", "--show-toplevel"], { cwd: root, capture: true });
   const rel = path.relative(repo, root).replaceAll(path.sep, "/");
   let tree = "uncommitted";
-  try { tree = run("git", ["rev-parse", `HEAD:${rel}`], { cwd: repo, capture: true }); } catch {}
-  const dirty = run("git", ["status", "--porcelain", "--untracked-files=no", "--", rel], { cwd: repo, capture: true }).length > 0;
+  // The public repository is the hcode directory itself, while the private source of truth keeps
+  // hcode in a monorepo subtree. Git rejects an empty pathspec, so bind the same facts explicitly
+  // in both layouts: the root tree + `.` for standalone, or HEAD:<subtree> + that path otherwise.
+  const treeish = rel ? `HEAD:${rel}` : "HEAD^{tree}";
+  const pathspec = rel || ".";
+  try { tree = run("git", ["rev-parse", treeish], { cwd: repo, capture: true }); } catch {}
+  const dirty = run("git", ["status", "--porcelain", "--untracked-files=no", "--", pathspec], { cwd: repo, capture: true }).length > 0;
   return { commit: run("git", ["rev-parse", "HEAD"], { cwd: repo, capture: true }), hcodeTree: tree, dirty };
 }
 

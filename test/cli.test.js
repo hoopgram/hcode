@@ -284,7 +284,7 @@ test("/command new saves a prompt and /<name> runs it in the same session", asyn
   assert.match(r.stdout, /Saved \/tidy/);
   assert.deepEqual(prompts.map(p => (typeof p === "string" ? p : p.map(b => b.text).join(""))), ["Format src/a.js and stop"]);
   assert.match(r.stdout, /\/tidy +project {2}takes args Format \$ARGUMENTS and stop/);
-  assert.match(r.stderr, /\/cost is a built-in command and a built-in\s+always wins/);   // conflicts are refused loudly
+  assert.match(r.stderr, /\/cost\s+is a built-in command and a built-in\s+always wins/); // wrapping never changes the contract
   assert.doesNotMatch(r.stderr, /Unknown command/);
   m.close();
 });
@@ -439,6 +439,8 @@ async function freePort() {
 test("A6 doctor in tunnel mode: key is held by the Hoop (not a local failure), and doctor opens the tunnel on demand then closes it", async () => {
   const m = await startFakeModel(() => text("ok"));
   const cwd = tmp();
+  fs.mkdirSync(path.join(cwd, ".hcode"), { recursive: true });
+  fs.writeFileSync(path.join(cwd, ".hcode", "policy.json"), JSON.stringify({ sandbox: "none" }));
   const port = await freePort();
   const out = [];
   let closed = false;
