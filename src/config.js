@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 
 const SOURCE_REVISION = process.env.HCODE_BUILD_REVISION || "";
-export const VERSION = "0.10.1" + (/^[0-9a-f]{40}$/.test(SOURCE_REVISION) ? `+git.${SOURCE_REVISION.slice(0, 12)}` : "");
+export const VERSION = "0.10.2" + (/^[0-9a-f]{40}$/.test(SOURCE_REVISION) ? `+git.${SOURCE_REVISION.slice(0, 12)}` : "");
 export const HOME = process.env.HCODE_HOME || path.join(os.homedir(), ".hcode");
 // Tests exercise both sides of the locality contract even when the gate itself runs on a Hoop.
 // This test-only switch can only remove the local default; it cannot grant access or credentials.

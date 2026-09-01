@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.10.2 — 2026-09-01 — 归一更新
+
+- **Native update now means the newest installable release, not GitHub's newest stable label.** GitHub's `releases/latest` endpoint omits prereleases, which made the ad-hoc-signed native channel invisible to both a fresh installer and `/update`. Both paths now discover the highest published release carrying a manifest and this host's binary, include the preview channel until notarization exists, reject drafts/unsupported targets, and still verify the exact source, platform, size, SHA-256 and executable version before the atomic switch. Exact `HCODE_RELEASE_URL` / `HCODE_UPDATE_BASE_URL` overrides remain available for owner-controlled mirrors and recovery.
+
 ## 0.10.1 — 2026-09-01 — 金箍醒来
 
 - **Hoop Code now arrives with one bounded identity beat.** A live composer terminal opens on the canonical HoopGram gold translated into cells: an open Hoop with inward curls around hcode's robot face, then an eight-frame luminous charge edge crosses a short bar before the ordinary dialog takes the screen. Wide terminals place the same mark left of version, brain, workspace and permission facts; narrow terminals stack them without dropping a fact. Pipes, `--print`, CI, dumb/no-color terminals and `HCODE_REDUCE_MOTION` never animate, and the final clear leaves no loading furniture in the conversation.

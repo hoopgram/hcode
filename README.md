@@ -49,8 +49,9 @@ hcode task start claude "inspect the parser"  # persistent background conversati
 ```
 
 A native preview includes `install.sh`, four host-built binaries, one source-bound manifest and checksums. The
-installer names the preview URL explicitly; a future signed stable release can use the default `latest` URL. It installs versions below
-`~/.local/share/hcode/versions/`, switches `~/.local/bin/hcode` atomically, and keeps one verified previous
+installer and `/update` discover the highest published release that carries a verified binary for this host,
+including prereleases while notarization is pending; GitHub's stable-only `releases/latest` shortcut is deliberately not used. They install versions below
+`~/.local/share/hcode/versions/`, switch `~/.local/bin/hcode` atomically, and keep one verified previous
 version for `hcode rollback`. `/update` fast-forwards a source checkout, downloads and verifies a native
 manifest for a native install, and refuses to mutate Nix.
 

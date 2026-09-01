@@ -1,7 +1,17 @@
 #!/bin/sh
 set -eu
 
-base=${HCODE_RELEASE_URL:-https://github.com/hoopgram/hcode/releases/latest/download}
+if [ -n "${HCODE_RELEASE_URL:-}" ]; then
+  base=${HCODE_RELEASE_URL%/}
+else
+  # /releases/latest excludes prereleases. Until macOS notarization exists, native releases are
+  # intentionally prereleases, so discover the newest published release from the anonymous API.
+  api=${HCODE_RELEASES_URL:-https://api.github.com/repos/hoopgram/hcode/releases?per_page=1}
+  tag=$(curl -fsSL --proto '=https' --tlsv1.2 -H 'Accept: application/vnd.github+json' "$api" |
+    sed -n 's/^[[:space:]]*"tag_name":[[:space:]]*"\(v[0-9][0-9.]*\)".*/\1/p' | head -n 1)
+  case "$tag" in v[0-9]*.[0-9]*.[0-9]*) ;; *) echo "could not discover the latest published hcode release" >&2; exit 69 ;; esac
+  base=https://github.com/hoopgram/hcode/releases/download/$tag
+fi
 case "$(uname -s)-$(uname -m)" in
   Darwin-arm64) target=darwin-arm64 ;;
   Darwin-x86_64) target=darwin-x64 ;;

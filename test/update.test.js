@@ -12,7 +12,7 @@ const HOME_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "hcode-update-home-"));
 process.env.HCODE_HOME = HOME_DIR;               // must be set before ../src/update.js computes STATE_FILE
 const STATE_FILE = path.join(HOME_DIR, "update", "state.json");
 
-const { compareVersions, locateInstallRoot, readGitState, planUpdate, runNativeUpdate, runUpdate, readVersion, updateSummaryLine, readUpdateState, startBackgroundUpdate } =
+const { compareVersions, locateInstallRoot, readGitState, planUpdate, runNativeUpdate, runUpdate, readVersion, selectNativeRelease, updateSummaryLine, readUpdateState, startBackgroundUpdate } =
   await import("../src/update.js");
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "hcode-update-"));
@@ -221,4 +221,47 @@ test("native update downloads verified bytes, switches once, and rejects a bad d
   const badFetch = async url => new Response(String(url).endsWith("native-manifest.json") ? JSON.stringify(broken) : candidate);
   await assert.rejects(() => runNativeUpdate({ baseUrl: "https://release.test/", fetchImpl: badFetch, root, binDir, target }), /sha256/);
   assert.equal(fs.realpathSync(path.join(root, "current")), before);
+});
+
+test("native release discovery includes prereleases, ignores drafts, and takes the highest supported version", () => {
+  const target = `${process.platform}-${process.arch}`;
+  const assets = version => [
+    { name: "native-manifest.json", browser_download_url: `https://release.test/${version}/native-manifest.json` },
+    { name: `hcode-${target}`, browser_download_url: `https://release.test/${version}/hcode-${target}` }
+  ];
+  const selected = selectNativeRelease([
+    { tag_name: "v99.0.0", draft: true, assets: assets("99.0.0") },
+    { tag_name: "v0.9.4", draft: false, prerelease: false, assets: assets("0.9.4") },
+    { tag_name: "v0.10.2", draft: false, prerelease: true, assets: assets("0.10.2") },
+    { tag_name: "v0.11.0", draft: false, prerelease: true, assets: [{ name: "native-manifest.json", browser_download_url: "https://release.test/missing-target" }] }
+  ], { target });
+  assert.equal(selected.version, "0.10.2");
+  assert.equal(selected.prerelease, true);
+});
+
+test("native update discovers the newest published prerelease instead of GitHub releases/latest", async () => {
+  const dir = tmp(), root = path.join(dir, "share"), binDir = path.join(dir, "bin"), target = `${process.platform}-${process.arch}`;
+  const candidate = Buffer.from("#!/bin/sh\nprintf '9.9.9\\n'\n");
+  const digest = (await import("node:crypto")).createHash("sha256").update(candidate).digest("hex");
+  const manifest = { schema: 1, product: "hcode", version: "9.9.9", source: { dirty: false, commit: "a".repeat(40), hcodeTree: "b".repeat(40) },
+    artifacts: [{ target, file: `hcode-${target}`, bytes: candidate.length, sha256: digest, verified: true }] };
+  const seen = [];
+  const fetchImpl = async url => {
+    const value = String(url); seen.push(value);
+    if (value.includes("api.github.test")) return new Response(JSON.stringify([{ tag_name: "v9.9.9", draft: false, prerelease: true, assets: [
+      { name: "native-manifest.json", browser_download_url: "https://release.test/v9.9.9/native-manifest.json" },
+      { name: `hcode-${target}`, browser_download_url: `https://release.test/v9.9.9/hcode-${target}` }
+    ] }]));
+    return new Response(value.endsWith("native-manifest.json") ? JSON.stringify(manifest) : candidate);
+  };
+  const result = await runNativeUpdate({ releasesUrl: "https://api.github.test/releases", fetchImpl, root, binDir, target });
+  assert.equal(result.newVersion, "9.9.9");
+  assert.match(seen[0], /api\.github\.test/);
+  assert.equal(seen.some(url => url.includes("releases/latest")), false);
+});
+
+test("native release discovery refuses an insecure API before sending a request", async () => {
+  let fetched = false;
+  await assert.rejects(() => runNativeUpdate({ releasesUrl: "http://release.test/releases", fetchImpl: async () => { fetched = true; } }), /require HTTPS/);
+  assert.equal(fetched, false);
 });

@@ -93,15 +93,41 @@ export function runUpdate({ root, git = defaultGit } = {}) {
   return { ok: true, root, oldVersion: before.version, newVersion: after.version, oldHead: before.head, newHead: after.head, changedFiles };
 }
 
-const DEFAULT_NATIVE_RELEASE = "https://github.com/hoopgram/hcode/releases/latest/download/";
+// GitHub's /releases/latest shortcut deliberately omits prereleases. Native hcode remains a
+// prerelease until the macOS artifacts have Developer ID notarization, so using that shortcut made
+// a perfectly healthy installation blind to every current native build. Discover the newest
+// published release through the public list API instead, then download only assets named by that
+// release and verified by its source-bound manifest. An explicit base URL remains available for
+// owner-controlled mirrors, exact-version recovery and offline tests.
+const DEFAULT_NATIVE_RELEASES_API = "https://api.github.com/repos/hoopgram/hcode/releases?per_page=10";
 const versionCore = value => String(value).split(/[+-]/, 1)[0].split(".").map(Number);
 export function compareVersions(a, b) {
   const left = versionCore(a), right = versionCore(b);
   for (let i = 0; i < 3; i++) if ((left[i] || 0) !== (right[i] || 0)) return (left[i] || 0) > (right[i] || 0) ? 1 : -1;
   return 0;
 }
+const releaseVersion = tag => {
+  const match = /^v?(\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?)$/.exec(String(tag || ""));
+  return match?.[1] || null;
+};
+const releaseAssets = release => new Map((release?.assets || [])
+  .filter(asset => typeof asset?.name === "string" && typeof asset?.browser_download_url === "string")
+  .map(asset => [asset.name, asset.browser_download_url]));
+
+export function selectNativeRelease(releases, { target = nativeTarget() } = {}) {
+  const candidates = (Array.isArray(releases) ? releases : []).flatMap(release => {
+    if (!release || release.draft === true) return [];
+    const version = releaseVersion(release.tag_name); const assets = releaseAssets(release);
+    if (!version || !assets.has("native-manifest.json") || !assets.has(`hcode-${target}`)) return [];
+    return [{ version, tag: release.tag_name, prerelease: release.prerelease === true, assets }];
+  });
+  candidates.sort((a, b) => compareVersions(b.version, a.version));
+  if (!candidates.length) throw new Error(`no published native release supports ${target}`);
+  return candidates[0];
+}
+
 async function boundedFetch(url, { fetchImpl = fetch, maxBytes = 200 * 1024 * 1024 } = {}) {
-  const response = await fetchImpl(url, { redirect: "follow" });
+  const response = await fetchImpl(url, { redirect: "follow", headers: { accept: "application/vnd.github+json", "user-agent": "hcode-native-updater" } });
   if (!response.ok) throw new Error(`download failed (${response.status})`);
   const length = Number(response.headers?.get?.("content-length") || 0);
   if (length > maxBytes) throw new Error("download exceeds the native update size limit");
@@ -110,20 +136,36 @@ async function boundedFetch(url, { fetchImpl = fetch, maxBytes = 200 * 1024 * 10
   return bytes;
 }
 
-export async function runNativeUpdate({ baseUrl = process.env.HCODE_UPDATE_BASE_URL || DEFAULT_NATIVE_RELEASE, fetchImpl = fetch,
-  root = DEFAULT_INSTALL_ROOT, binDir = DEFAULT_BIN_DIR, target = nativeTarget(), spawnImpl } = {}) {
+async function resolveNativeRelease({ baseUrl, releasesUrl, fetchImpl, target }) {
+  if (baseUrl) {
+    const base = new URL(baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`);
+    return { base, version: null, assets: null };
+  }
+  const api = new URL(releasesUrl || DEFAULT_NATIVE_RELEASES_API);
+  if (api.protocol !== "https:" && !["127.0.0.1", "localhost"].includes(api.hostname)) throw new Error("native updates require HTTPS");
+  const bytes = await boundedFetch(api, { fetchImpl, maxBytes: 2 * 1024 * 1024 });
+  return { ...selectNativeRelease(JSON.parse(Buffer.from(bytes).toString("utf8")), { target }), base: null };
+}
+
+export async function runNativeUpdate({ baseUrl = process.env.HCODE_UPDATE_BASE_URL, releasesUrl = process.env.HCODE_UPDATE_RELEASES_URL,
+  fetchImpl = fetch, root = DEFAULT_INSTALL_ROOT, binDir = DEFAULT_BIN_DIR, target = nativeTarget(), spawnImpl } = {}) {
   if (isNixRuntime()) return { ok: false, reason: "nix-managed", message: "this hcode is Nix-managed; update it through the owning flake/profile" };
   const stage = fs.mkdtempSync(path.join(os.tmpdir(), "hcode-native-update-"));
   try {
-    const base = new URL(baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`);
-    if (base.protocol !== "https:" && !["127.0.0.1", "localhost"].includes(base.hostname)) throw new Error("native updates require HTTPS");
-    const manifestBytes = await boundedFetch(new URL("native-manifest.json", base), { fetchImpl, maxBytes: 1024 * 1024 });
+    const release = await resolveNativeRelease({ baseUrl, releasesUrl, fetchImpl, target });
+    const urls = [release.base, ...(release.assets?.values?.() || [])].filter(Boolean).map(value => new URL(value));
+    if (urls.some(url => url.protocol !== "https:" && !["127.0.0.1", "localhost"].includes(url.hostname))) throw new Error("native updates require HTTPS");
+    const manifestUrl = release.base ? new URL("native-manifest.json", release.base) : release.assets.get("native-manifest.json");
+    const manifestBytes = await boundedFetch(manifestUrl, { fetchImpl, maxBytes: 1024 * 1024 });
     const manifest = JSON.parse(Buffer.from(manifestBytes).toString("utf8"));
     const { version, artifact } = validateNativeManifest(manifest, { target });
+    if (release.version && version !== release.version) throw new Error(`release ${release.tag} carries native manifest ${version}`);
     if (version === VERSION) return { ok: true, oldVersion: VERSION, newVersion: VERSION, changedFiles: 0 };
     if (compareVersions(version, VERSION) < 0) throw new Error(`latest native manifest ${version} is older than the running ${VERSION}`);
     const candidate = path.join(stage, artifact.file);
-    fs.writeFileSync(candidate, await boundedFetch(new URL(artifact.file, base), { fetchImpl }), { mode: 0o700 });
+    const artifactUrl = release.base ? new URL(artifact.file, release.base) : release.assets.get(artifact.file);
+    if (!artifactUrl) throw new Error(`release ${release.tag} is missing ${artifact.file}`);
+    fs.writeFileSync(candidate, await boundedFetch(artifactUrl, { fetchImpl }), { mode: 0o700 });
     const installed = installNativeCandidate(candidate, manifest, { root, binDir, target, spawnImpl });
     return { ok: true, oldVersion: VERSION, newVersion: installed.current, changedFiles: 1, sha256: installed.sha256 };
   } finally { fs.rmSync(stage, { recursive: true, force: true }); }

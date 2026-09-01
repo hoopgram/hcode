@@ -31,6 +31,9 @@ test("four exact host manifests become one atomic installer release", () => {
     assert.equal(fs.readFileSync(path.join(output, `${name}.sha256`), "utf8"), `${digest(path.join(output, name))}  ${name}\n`);
   }
   assert.match(fs.readFileSync(path.join(output, "SHA256SUMS"), "utf8"), /native-manifest\.json[\s\S]*install\.sh/);
+  const installer = fs.readFileSync(path.join(output, "install.sh"), "utf8");
+  assert.match(installer, /api\.github\.com\/repos\/hoopgram\/hcode\/releases\?per_page=1/);
+  assert.doesNotMatch(installer, /releases\/latest\/download/);
   assert.equal(fs.statSync(path.join(output, "install.sh")).mode & 0o111, 0o111);
 });
 
