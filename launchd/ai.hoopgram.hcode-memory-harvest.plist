@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  hcode memory harvest, once a day, through your own SSH key (V0.2.7 B5).
+  OFF by default — the harvest is manual unless YOU install this agent. It is one-way:
+  it reads Claude / Codex / hcode memories on this Mac and copies them into the hub layer
+  of your Hoop; it never writes into another agent's directory. Offline = skipped; the
+  run's one-line result lands in ~/.hcode/harvest.log.
+
+  Enable (replace <hoop> with your Hoop name, e.g. "my-hoop"; keep the file name):
+    sed "s/HOOP_NAME/<hoop>/; s#HCODE_BIN#$(command -v hcode)#" \
+      "$(npm root -g)/hcode/launchd/ai.hoopgram.hcode-memory-harvest.plist" \
+      > ~/Library/LaunchAgents/ai.hoopgram.hcode-memory-harvest.plist
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.hoopgram.hcode-memory-harvest.plist
+  Disable:
+    launchctl bootout gui/$(id -u)/ai.hoopgram.hcode-memory-harvest
+    rm ~/Library/LaunchAgents/ai.hoopgram.hcode-memory-harvest.plist
+  Run once now:  launchctl kickstart gui/$(id -u)/ai.hoopgram.hcode-memory-harvest
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>ai.hoopgram.hcode-memory-harvest</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/sh</string>
+    <string>-c</string>
+    <string>HCODE_BIN memory harvest --hoop HOOP_NAME --json >> "$HOME/.hcode/harvest.log" 2>&amp;1 || echo "{\"ok\":false,\"skipped\":\"offline or tunnel failed\",\"at\":\"$(date -u +%FT%TZ)\"}" >> "$HOME/.hcode/harvest.log"</string>
+  </array>
+  <key>StartCalendarInterval</key>
+  <dict><key>Hour</key><integer>9</integer><key>Minute</key><integer>30</integer></dict>
+  <key>RunAtLoad</key><false/>
+  <key>ProcessType</key><string>Background</string>
+  <key>Nice</key><integer>10</integer>
+</dict>
+</plist>

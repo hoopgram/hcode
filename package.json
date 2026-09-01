@@ -1,0 +1,48 @@
+{
+  "name": "@hoopgram/hcode",
+  "version": "0.9.4",
+  "description": "Hoop Code — HoopGram's zero-dependency coordinator for your terminal, with owner-approved Codex and Claude subagents.",
+  "license": "AGPL-3.0",
+  "type": "module",
+  "bin": {
+    "hcode": "bin/hcode.js",
+    "hcode-supervise": "bin/hcode-supervise.js"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "launchd/",
+    "FULL-AGENCY.md",
+    "README.md",
+    "CAPABILITY-BOUNDARY.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "check": "node --check bin/hcode.js && for f in src/*.js; do node --check $f; done"
+  },
+  "dependencies": {},
+  "keywords": [
+    "ai",
+    "agent",
+    "cli",
+    "coding-assistant",
+    "hoopgram",
+    "hoop",
+    "claude-code",
+    "codex",
+    "sandbox"
+  ],
+  "homepage": "https://hoopgram.ai/hcode",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hoopgram/hcode.git"
+  },
+  "bugs": {
+    "url": "https://github.com/hoopgram/hcode/issues"
+  },
+  "author": "HoopGram"
+}

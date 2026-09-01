@@ -1,0 +1,39 @@
+{
+  "v": 1,
+  "workId": "work-feedface",
+  "cwd": "/home/owner/project",
+  "objective": "supervise long work",
+  "status": "waiting-owner",
+  "updatedAt": 1724570101000,
+  "lanes": [
+    {
+      "id": "inspect",
+      "runner": "codex",
+      "status": "waiting",
+      "waitingOn": "gate:ship",
+      "lastActivityAt": 1724570100000,
+      "tmuxSession": "hcode-feedface-inspect",
+      "evidenceCount": 0
+    }
+  ],
+  "gates": [
+    {
+      "id": "ship",
+      "status": "requested",
+      "question": "Ship the result?",
+      "evidence": ["reports/inspection.json"],
+      "requestedAt": 1724570101000,
+      "decidedAt": null,
+      "by": null
+    },
+    {
+      "id": "safe",
+      "status": "pre-approved",
+      "question": "Known safe?",
+      "evidence": [],
+      "requestedAt": null,
+      "decidedAt": null,
+      "by": null
+    }
+  ]
+}
