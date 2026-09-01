@@ -14,6 +14,9 @@ Anthropic Messages API (or a Hoop's keyproxy / any compatible endpoint).
 - **Zero dependencies.** Node.js >= 20 built-ins only (`node:fs`, `node:os`, `node:path`,
   `node:child_process`, `node:readline`, `node:net`, `node:crypto`, `node:stream`, …).
 - **ESM only.** `"type": "module"`; use `import` / `export`.
+- **Keep the architecture visible.** `ARCHITECTURE.md` is the one public architecture map and is linked
+  from the GitHub README. Any module-boundary, trust-boundary, data-flow or render-path change updates it in the same commit;
+  handoffs link to it instead of copying another file list that will drift.
 - **No TUI frameworks.** Semantic plain text first; ANSI only for an interactive sink (see `src/ui.js`).
   No spinner, high-frequency full-frame rewriting, or colour-only state. `NO_COLOR`, `TERM=dumb`, pipes, JSON stdout and `-p` stdout stay clean.
   Untrusted C0/C1 controls are rendered visibly as `\xNN`; never silently remove bytes from an approval. Mark an approval
@@ -32,6 +35,7 @@ Run both before finishing a change.
 
 ## File map
 
+- `ARCHITECTURE.md` — ten-minute system map, event loop, render paths, change routing, and test gates.
 - `bin/hcode.js` — entrypoint; calls `main()` from `src/cli.js`.
 - `src/cli.js` — command surface: interactive, one task, `-p` print mode, `--resume`, `connect`, `doctor`, `sessions`, `--version`, `--help`.
 - `src/agent.js` — agent loop (prompt → stream → run tools with permissions); loads `HCODE.md`/`AGENTS.md`/`CLAUDE.md`.

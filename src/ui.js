@@ -331,6 +331,9 @@ export function createUI({ out = process.stdout, err = process.stderr, env = pro
     const tail = parts.slice(-2).join("/");
     return tail && tail.length < 61 ? `…/${tail}` : text.slice(0, 61) + "…";
   };
+  // One semantic table feeds all three render paths. Readline paints active/done here; composer
+  // receives the same active/kind through setActivity(); plain output keeps the same words without
+  // terminal control. Do not restate these labels in composer.js.
   const toolAction = (label, meta = {}) => {
     const name = String(meta.name || ""); const input = meta.input || {};
     const target = displayTarget(input.path || input.file_path || "");

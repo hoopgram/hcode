@@ -14,6 +14,13 @@ Anthropic-compatible endpoint. The current build makes it something you can *dep
 stream per session, crash recovery that never repeats a side effect, an OS sandbox, a policy file,
 and — if you installed them — Claude Code or Codex as bounded subagents behind the same gate.
 
+## Architecture
+
+Start with the **[ten-minute architecture map](ARCHITECTURE.md)**. It follows one request around the agent loop,
+draws the responsibility and trust boundaries, explains the composer/readline/plain render paths, and gives a
+file-and-test route for each common kind of change. The compact invariant is: brains propose; policy decides;
+tools act; the append-only session records; the terminal projects.
+
 ```sh
 npm i -g @hoopgram/hcode
 hcode doctor                 # config · brain · sandbox · policy · runners — in plain words

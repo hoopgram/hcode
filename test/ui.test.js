@@ -307,12 +307,48 @@ test("waiting names a posture, rotates, and never keeps the process alive", asyn
   MUSINGS.forEach((quote, index) => assert.equal(musing(() => (index + 0.5) / MUSINGS.length), quote, "every line is reachable by the same random draw"));
 });
 
-test("activity language follows the work instead of a single Thinking label", () => {
-  const cases = [["Checking connectors", "Checking"], ["Searching files", "Searching"], ["Reading workspace", "Reading"], ["Editing parser", "Editing"], ["Coordinating subagent", "Coordinating"], ["Waiting for runner", "Waiting"]];
-  for (const [label, expected] of cases) {
-    const out = sink({ isTTY: true }); const terminal = createUI({ out, err: sink(), env: { TERM: "xterm" } });
-    terminal.toolStart(label); terminal.toolEnd(label, "", { state: "done" });
-    assert.match(stripAnsi(out.text), new RegExp(`(?:● ${expected}|• (?:Checked|Edited|Ran|Coordinated|Completed))`), label);
+test("one tool-action table drives composer and readline while plain stays control-free", () => {
+  const literal = value => new RegExp(String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  const cases = [
+    { label: "read_file src/ui.js", meta: { name: "read_file", input: { path: "src/ui.js" } }, active: "Reading src/ui.js", done: "Read src/ui.js", kind: "reading", quiet: true },
+    { label: "grep /owner/ src", meta: { name: "grep", input: { pattern: "owner", path: "src" } }, active: "Searching owner", done: "Searched owner", kind: "searching", quiet: true },
+    { label: "web_search hcode", meta: { name: "web_search", input: { query: "hcode" } }, active: "Searching the web · hcode", done: "Searched the web · hcode", kind: "searching" },
+    { label: "edit_file README.md", meta: { name: "edit_file", input: { path: "README.md", old_string: "a", new_string: "b" } }, active: "Editing README.md", done: "Edited README.md", kind: "editing" },
+    { label: "$ npm test", meta: { name: "bash", input: { command: "npm test" } }, active: "Running npm test", done: "Ran npm test", kind: "running" },
+    { label: "codex subagent", meta: { name: "delegate_agent", input: { agent: "codex" } }, active: "Working with codex", done: "Heard back from codex", kind: "coordinating" },
+    { label: "Checking connectors", meta: {}, active: "Checking", done: "Checked", kind: "checking" },
+  ];
+
+  for (const row of cases) {
+    const readlineOut = sink({ isTTY: true });
+    const readline = createUI({ out: readlineOut, err: sink(), env: { TERM: "xterm" } });
+    readline.toolStart(row.label, [], row.meta);
+    readline.toolEnd(row.label, "", { state: "done", ...row.meta });
+    const visible = stripAnsi(readlineOut.text).replace(/\r|\x1b\[2K/g, "");
+    assert.match(visible, literal(row.active), `${row.label}: readline active`);
+    if (row.quiet) assert.doesNotMatch(visible, literal(row.done), `${row.label}: quiet completion stays quiet`);
+    else assert.match(visible, literal(row.done), `${row.label}: readline completion`);
+
+    const activities = []; const projected = [];
+    const composer = {
+      print(value) { projected.push(String(value)); },
+      setActivity(label, kind) { activities.push([label, kind]); },
+      clearActivity() { activities.push(null); },
+    };
+    const framed = createUI({ out: sink({ isTTY: true }), err: sink(), env: { TERM: "xterm" } });
+    framed.attachComposer(composer);
+    framed.toolStart(row.label, [], row.meta);
+    framed.toolEnd(row.label, "", { state: "done", ...row.meta });
+    assert.deepEqual(activities.find(Array.isArray), [row.active, row.kind], `${row.label}: composer receives the same semantic action`);
+    assert.equal(activities.at(-1), null, `${row.label}: composer activity clears`);
+    if (!row.quiet) assert.match(stripAnsi(projected.join("")), literal(row.done), `${row.label}: composer completion`);
+
+    const plainOut = sink(); const plain = createUI({ out: plainOut, err: sink(), env: { NO_COLOR: "" } });
+    plain.toolStart(row.label, [], row.meta);
+    plain.toolEnd(row.label, "", { state: "done", ...row.meta });
+    assert.doesNotMatch(plainOut.text, ESC_OR_CR, `${row.label}: plain sink has no terminal control`);
+    if (row.quiet) assert.equal(plainOut.text, "", `${row.label}: quiet plain completion stays absent`);
+    else assert.match(plainOut.text, literal(row.done), `${row.label}: plain completion keeps the semantic label`);
   }
 });
 

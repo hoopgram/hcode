@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- **The public repository now has one ten-minute architecture map.** `ARCHITECTURE.md` follows an owner request through the agent loop, draws responsibility and trust boundaries, explains the composer/readline/plain render paths, records why `cli.js` is expensive to touch, and routes common changes to the right files and tests. README and handoffs point to this one map instead of maintaining parallel file lists that drift.
+
+- **The three render paths now share an explicit semantic test, not a duplicated strings module.** One table drives read, search, edit, command and delegation activity through the readline surface, verifies that the composer receives the same active label and kind, and keeps the plain sink free of ANSI and carriage returns. The existing real-tmux geometry gate and no-fourth-painter check remain the stronger screen-level protection; `cli.js` stays intact until those contracts justify a separate refactor.
+
 ## 0.9.4 — 2026-09-01 — 菊与刀
 
 - **Full Agency is now one visible permission decision instead of three conflicting switches.** The default is Full Agency level 8 for ordinary project work, with the same fixed hard gates for secrets, spend, publication, deletion, constitutional wording and owner intent. A real first interactive launch offers Full Agency, ask-before-changes, auto-within-policy and read-only, then lets the owner remember the choice for the project or ask again every startup. `/permissions` can forget only the remembered mode without disturbing network, sandbox or rule settings. Pipes, print mode, startup slash commands and resumed threads never stop for the chooser.
