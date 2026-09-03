@@ -1,6 +1,7 @@
 # Developing Hoop Code
 
-这是人类开发者和 coding agent 修改 hcode 的公共入口。先读这一页，再只打开与你的改动直接相关的代码。
+`START-HERE.md` 是所有 agent 的唯一开工入口。本页只负责详细开发与验证方法；读完入口后，再只打开
+与你的改动直接相关的代码。
 
 > hcode 不是只有一个终端入口。它既是独立 CLI，也是 HoopOS Code 的可嵌入内核。
 > 一次改动必须说清楚自己影响哪一个 surface，并证明没有把另一个 surface 留在后面。
@@ -21,6 +22,7 @@
 文档各管一件事：
 
 - `DEVELOPING.md`：如何改、如何验证、何时停下来。
+- `UI-MAP.md`：UI 元素到稳定符号、当前行号和最近测试的自动生成指针；不是第二份架构文档。
 - `ARCHITECTURE.md`：系统结构、事件流、三条渲染路径；这是唯一架构地图。
 - `CAPABILITY-BOUNDARY.md`：工具、网络、权限、子代理的信任边界。
 - `HCODE.md`：hcode 自动装入 coding agent 上下文的项目硬规则。
@@ -151,6 +153,39 @@ npm pack --dry-run --json
 
 几何变化才需要 PTY；普通文字和颜色不需要假装做全平台发布。权限、安全、session 和 release contract
 则不能因为改动看起来小就省掉失败路径。
+
+### 本地 UI 快车道
+
+简单文案、颜色、边框或 composer 小改动完成后，一条命令关闭本地交付：
+
+```sh
+npm run local:ui -- --note "Show a quieter input field" --agent Codex
+# 改了行数、光标、resize 或滚动几何时再加：--geometry
+```
+
+它只接受 `UI-MAP.md` 所列 UI lane，拒绝预先 staged 或 lane 外 tracked 改动；随后只做一次 patch
+版本递增、刷新 UI 指针、运行语法/定向测试、提交明确文件、从 clean commit 构建当前机器原生文件、
+校验 manifest/大小/SHA/version 并原子安装。测试失败时恢复本次版本文件，不会连续递增；构建后失败可用
+`npm run local:ui -- --resume` 从同一 clean commit 重试。它永不 push、tag、publish、合 main 或部署 Nix/HoopOS。
+
+### 远端候选到当前机器
+
+远端 agent 只产 clean Git candidate，不把工作树或另一平台的 binary 复制回来。candidate 集成进约定分支后，
+目标机器运行：
+
+```sh
+npm run local:pull -- --remote origin --branch hcode-local-next --profile balanced
+# 需要钉死交接提交时再加：--exact <40-hex>
+```
+
+它拒绝 tracked dirty、pre-staged、非 fast-forward、错误 exact 和同版本不同提交；通过 named Git remote
+fetch 精确候选，按 fast/balanced/full 风险档验证，然后调用与 `local:ui --resume` 相同的 native build、
+manifest 校验和原子安装路径。失败不会替换当前二进制，已有 `hcode rollback` 仍可返回上一版本。
+
+调度依赖只看 Git base：exact base 一进内部 remote，远端实现就可立即启动；与它无依赖的本地文档、
+适配器、审查准备并行完成。不用任务列表顺序伪装成依赖，也不用人工轮询伪装成可观测性。
+远端运行必须有 run id、新鲜 heartbeat、原子 completion receipt、clean descendant commit 与受保护的 candidate ref；
+具体私有主机适配器只由 monorepo 根入口声明。
 
 ## 7. 分发与发布
 

@@ -17,9 +17,55 @@ const ROWS = 24;
 // Fixed seeds, so a failure reproduces exactly; HCODE_RENDER_SEEDS widens the sweep by hand.
 const SEEDS = Array.from({ length: Math.max(1, Number(process.env.HCODE_RENDER_SEEDS) || 12) }, (_, index) => (0x5eed + index * 0x9e3779b1) >>> 0);
 // Composer frame furniture: none of it may survive above the scroll region.
-const FURNITURE = [/─{6,}/, /Ctrl-C twice to exit/, /^›\s/, /Press enter to confirm/];
+const FURNITURE = [/─{6,}/, /(?:Enter send|Enter accepts|Esc interrupt)(?: ·|$)/, /^›\s/, /Press enter to confirm/];
 
 const waitFor = (file, tries = 400) => { for (let i = 0; i < tries && !fs.existsSync(file); i++) pause(25); return fs.existsSync(file); };
+
+test("real PTYs keep the idle and busy footer to one complete row at 40, 80 and 120 columns", t => {
+  const tmux = spawnSync("sh", ["-lc", "command -v tmux"], { encoding: "utf8" }).stdout.trim();
+  if (!tmux) { t.skip("blocked-by-environment: tmux unavailable"); return; }
+  const socket = `hcode-footer-${process.pid}`; const dir = fs.mkdtempSync(path.join(os.tmpdir(), "hcode-footer-pty-"));
+  const call = args => spawnSync(tmux, ["-L", socket, ...args], { encoding: "utf8", timeout: 10000 });
+  const probe = path.join(dir, "footer-probe.mjs");
+  fs.writeFileSync(probe, `
+import fs from "node:fs";
+import { TerminalComposer } from ${JSON.stringify(path.join(source, "composer.js"))};
+const [ready, go, busy] = process.argv.slice(2);
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+const composer = new TerminalComposer({ env: { TERM: "xterm-256color", HCODE_REDUCE_MOTION: "1" } });
+composer.start();
+composer.setMeter({ text: "↓ 3.8K tokens · Context 97% left · 3.4K/120K · 4.6K cu", identity: { model: "deepseek-v4-pro", effort: "medium", sessionMode: "default", permission: "all" }, band: "calm" });
+fs.writeFileSync(ready, "idle");
+while (!fs.existsSync(go)) await sleep(20);
+composer.setBusy(true); await sleep(50); fs.writeFileSync(busy, "busy");
+await new Promise(() => {});
+`);
+  const footer = (session, columns, action) => {
+    const shot = call(["capture-pane", "-p", "-t", session]);
+    assert.equal(shot.status, 0, shot.stderr);
+    const lines = shot.stdout.replace(/\n$/, "").split("\n").map(row => row.replace(/\s+$/, ""));
+    const expected = columns === 40 ? `  ${action} · deepseek-v4-pro` : `  ${action} · deepseek-v4-pro · Context 97% left`;
+    assert.equal(lines.at(-1), expected, `${columns}: exact footer projection`);
+    assert.equal(lines.filter(row => row.includes(action)).length, 1, `${columns}: action occupies one physical row`);
+    assert.doesNotMatch(lines.join("\n"), /Shift\+Enter|Ctrl-C twice|\? keys|3\.8K tokens|3\.4K\/120K|4\.6K cu|medium|default|all/);
+  };
+
+  try {
+    for (const columns of [40, 80, 120]) {
+      const session = `footer-${columns}`; const ready = path.join(dir, `${columns}-ready`);
+      const go = path.join(dir, `${columns}-go`); const busy = path.join(dir, `${columns}-busy`);
+      const started = call(["new-session", "-d", "-x", String(columns), "-y", String(ROWS), "-s", session, process.execPath, probe, ready, go, busy]);
+      assert.equal(started.status, 0, started.stderr); assert.ok(waitFor(ready), `${columns}: idle footer probe did not start`);
+      footer(session, columns, "Enter send");
+      fs.writeFileSync(go, ""); assert.ok(waitFor(busy), `${columns}: busy footer probe did not repaint`);
+      footer(session, columns, "Esc interrupt");
+      call(["kill-session", "-t", session]);
+    }
+  } finally {
+    spawnSync(tmux, ["-L", socket, "kill-server"], { encoding: "utf8", timeout: 5000 });
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 test("random PTY sequences repaint to the golden frame with no residue outside the scroll region", t => {
   const tmux = spawnSync("sh", ["-lc", "command -v tmux"], { encoding: "utf8" }).stdout.trim();

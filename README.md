@@ -1,5 +1,8 @@
 # ○ Hoop Code (`hcode`)
 
+This file is for **using** hcode. Building or changing hcode's own code? Start at
+[START-HERE.md](START-HERE.md) instead — human or agent.
+
 The concise security and coordination contract for `task`, `work`, and `guard` is in
 [CAPABILITY-BOUNDARY.md](CAPABILITY-BOUNDARY.md).
 
@@ -16,13 +19,14 @@ and — if you installed them — Claude Code or Codex as bounded subagents behi
 
 ## Develop
 
-Human contributors and coding agents start with **[DEVELOPING.md](DEVELOPING.md)**. It routes a change to the
+Human contributors and coding agents start with **[START-HERE.md](START-HERE.md)**, then follow
+**[DEVELOPING.md](DEVELOPING.md)**. It routes a change to the
 smallest owning module and test, explains the special in-process HoopOS contract, and separates ordinary local
 development from push, release, npm, signing and production gates.
 
 ## Architecture
 
-Start with the **[ten-minute architecture map](ARCHITECTURE.md)**. It follows one request around the agent loop,
+Continue with the **[ten-minute architecture map](ARCHITECTURE.md)**. It follows one request around the agent loop,
 draws the responsibility and trust boundaries, explains the composer/readline/plain render paths, and gives a
 file-and-test route for each common kind of change. The compact invariant is: brains propose; policy decides;
 tools act; the append-only session records; the terminal projects.
@@ -52,6 +56,8 @@ hcode -p "summarise src/"    # non-interactive, for scripts
 hcode connect mina           # your Hoop becomes the brain + a read-only private-data source
 hcode                        # hcode may propose a bounded Codex/Claude subtask; you approve yes/no
 hcode task start claude "inspect the parser"  # persistent background conversation
+hcode launch codex "inspect the parser"       # the same command, one word
+hcode --runner direct "…"                     # hcode's own model call instead of an installed CLI
 ```
 
 A native preview includes `install.sh`, four host-built binaries, one source-bound manifest and checksums. The
@@ -120,7 +126,7 @@ input, a safety line says that the preview is escaped and execution still receiv
 ordinary literal text such as `\x1b` does not receive that warning.
 
 The live page uses a two-cell gutter on both sides of assistant output; wrapping is measured in terminal cells,
-so CJK and emoji do not collide with the right edge. The shortcut and meter rows begin in the same column as
+so CJK and emoji do not collide with the right edge. The single footer row begins in the same column as
 the input cursor. The input band follows the terminal rather than assuming a white page: it uses a non-blocking
 OSC 11 background query when available, a `COLORFGBG` hint when present, and the terminal's native background
 when neither can answer. `HCODE_INPUT_THEME=dark` or `light` is the explicit override. Only a complete known
@@ -128,23 +134,25 @@ slash command is luminous yellow on a dark field and contrast-safe gold on a lig
 
 ## The status footer
 
-The bottom of a live session gives shortcuts and session use their own rows, from the first frame and
-without any setup. A row is shown only when its complete fact fits; hcode never prints half a shortcut
-or a truncated budget.
+The bottom of a live session is exactly one physical row. It keeps complete facts in semantic order: the
+action that matters now, the model, then context remaining. A narrow terminal stops before the next whole
+fact instead of wrapping or printing a fragment.
 
 ```
-  Enter send · Shift+Enter newline · ? keys · Ctrl-C twice to exit
-  deepseek-v4-pro · high · savetoken · ask
-  ↓ 21.6K tokens · Context 38% left · 74.4K/120K · 4.5K cu
+  Enter send · deepseek-v4-pro · Context 38% left
 ```
+
+While a turn is busy the first fact becomes `Esc interrupt`. At 40 columns the lower-priority context fact
+hides whole, leaving `Enter send · deepseek-v4-pro`; at 80 and 120 columns all three fit. The full key table
+stays behind `?`, token and cost detail stays in `/cost`, and permission detail stays in `/permissions`.
 
 The context figure is the same number the compactor decides on — the larger of the estimate over the
-thread and the real prompt the brain last billed — so the meter and the compaction it is warning about
-can never disagree. The denominator is `--token-budget` (default 120,000). Three bands: under 60% cyan,
-60–80% gold, over 80% bold red with `· /handoff` appended. **That is the whole of what the usage band
-does.** hcode never clears, compacts or hands off a conversation because of this meter; `/handoff` then
-`/clear` stays the owner's move, and `hcode --resume <id>` reopens the thread either way. (Automatic
-compaction at the `--token-budget` line is a separate, older mechanism and is unchanged.)
+thread and the real prompt the brain last billed — so the footer and compaction can never disagree. The
+denominator is `--token-budget` (default 120,000). Under 60% is cyan, 60–80% gold, and over 80% bold red,
+but the percentage and `left` remain written out so colour never carries the meaning. The footer never
+clears, compacts or hands off a conversation; `/handoff` then `/clear` stays the owner's move, and
+`hcode --resume <id>` reopens the thread either way. (Automatic compaction at the `--token-budget` line
+is a separate, older mechanism and is unchanged.)
 
 Spend is shown in **relative cost units** — the same weights `/cost` uses (uncached 1 · cache write 1.25 ·
 cache read 0.1 · output 5) — because hcode's gateways publish no price list and a dollar figure would be
@@ -237,7 +245,7 @@ or complimentary subscription, and returns a revocable device session. The provi
 Hoop/keyproxy. `~/.hcode/auth.json` contains only that device session and is mode 0600; `/logout` revokes it and
 removes the local copy. `hcode connect <name>` remains the advanced SSH path for an owner-managed Hoop.
 
-The legacy explicit `--runner` compatibility path is not saved as a default. If it is opened directly in a broad folder such as the owner's home, hcode keeps the private-path
+An external runner works in the project directory hcode was started in. If that is a broad folder such as the owner's home, hcode keeps the private-path
 check but turns it into an owner gate: `[y]es / [n]o`, with Enter meaning no. Yes grants that runner access only
 for the current hcode session and writes a `workspace.approval` event; scripts and print mode remain fail-closed.
 
@@ -389,8 +397,7 @@ running in a PA calls that PA's CLIs. `hcode connect` does not move them to the 
 call one through `delegate_agent` for a single read-only, network-off investigation after an explicit owner
 yes/no. Child lifecycle events and the report are audited in the hcode session. hcode evaluates the report,
 makes any approved edits with its own tools, and gives the final answer. `hcode runner list` and `/agents` show
-availability. The legacy explicit `--runner` flag remains only as a one-shot compatibility escape hatch and is
-never restored from saved config.
+availability, and `--runner` chooses which of them speaks for this run (see *Who runs the turn*).
 
 Every subagent names the brain it runs on; none inherits the foreign CLI's own default. A call either names a
 model or declares the work and takes that tier — `search` (claude `haiku`, codex `gpt-5.6-luna`) for
@@ -462,6 +469,28 @@ On a PA, the terminal checks the owner's conventional `$HOME/.local/bin` and `$H
 the system PATH. This makes separately installed CLIs discoverable without placing them or their credentials in
 the Hoop closure.
 
+## Who runs the turn
+
+hcode is a kernel with a session, permission and evidence layer around it. Who actually calls a model is a
+choice, and by default it is **not** hcode: it is the coding CLI you installed and signed into yourself.
+
+- `--runner codex|claude|direct`, or `HCODE_RUNNER`, names the executor for the run.
+- **Explicit always beats automatic.** `--runner`, then `HCODE_RUNNER`, then a `runner` saved in
+  `~/.hcode/config.json` (that is what `hcode setup` writes when you pick the direct brain). If any of them is
+  set, nothing is detected at all.
+- **Otherwise hcode looks at this machine**: `codex` if it is on `PATH`, else `claude`, else `direct`. A runner
+  you pulled out with `hcode runner remove <id>` is not a candidate. `hcode doctor` prints which one will run
+  the next turn and whether that was your choice or a detection.
+- **`direct`** is hcode's own model call — the API path, your key or your Hoop's keyproxy. It is kept, it is
+  fully supported, and it is never chosen automatically while an external runner is available. `--runner hcode`
+  is the older spelling of the same thing and keeps working; `hcode` also stays the id written into session
+  headers and coordinator lanes, so older threads and saved configs need no rewriting.
+- Whoever runs the turn, the record is the same: one append-only v2 JSONL thread with `header.runner`,
+  `turn.start`, every message and tool call, and `turn.end`. The evidence does not depend on the executor.
+
+This means an owner who has Codex or Claude Code installed needs no HoopGram provider key to use hcode at all,
+and an owner who has neither loses nothing.
+
 ## Configuration
 
 Priority: command line › environment › `~/.hcode/config.json` › defaults.
@@ -475,7 +504,7 @@ Priority: command line › environment › `~/.hcode/config.json` › defaults.
 | mode | `--mode` | `HCODE_MODE` | `all` / Full Agency (or the policy file's `mode`) |
 | token budget | `--token-budget` | `HCODE_TOKEN_BUDGET` | `120000` |
 | prices | — | `HCODE_PRICES` | none — the status meter stays in relative cost units |
-| runner | `--runner` | `HCODE_RUNNER` | `hcode` |
+| runner | `--runner codex\|claude\|direct` | `HCODE_RUNNER` | the first external runner installed here — `codex`, else `claude`, else `direct` |
 
 Provider authentication failures are translated into one owner action: run `hcode setup` and choose a ready
 brain. Raw provider-header errors are not part of the normal interaction.

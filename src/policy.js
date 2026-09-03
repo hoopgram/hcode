@@ -20,14 +20,14 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { readJson } from "./config.js";
 import { loadRules, matchRules, ruleReason, commandSegments, globToRegex } from "./rules.js";
 import { classifyConsequences, gateClasses, gateSentence, GATE_LABELS } from "./gates.js";
 
 export { globToRegex };
 export const MODES = ["read", "ask", "auto", "all"];
 export const SANDBOXES = ["auto", "sandbox-exec", "bwrap", "systemd-run", "none"];
-
-function readJson(file) { try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch { return null; } }
+// readJson is shared from config.js (identical try/JSON.parse/catch-null behavior, formerly duplicated here).
 
 // policy.js must not import tools.js (tools.js imports this file); the judge is injected, with a lazy default.
 let judgeImpl = null;

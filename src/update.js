@@ -20,6 +20,8 @@ import { DEFAULT_BIN_DIR, DEFAULT_INSTALL_ROOT, installNativeCandidate, nativeTa
 const STATE_DIR = path.join(HOME, "update");
 const STATE_FILE = path.join(STATE_DIR, "state.json");
 
+export const isNixManagedNative = (native = isNativeRuntime(), nixPath = isNixRuntime()) => Boolean(native && nixPath);
+
 // One git call in, one trimmed stdout string out (or a thrown error carrying stderr). Every function
 // below takes this as `git` so a test can hand it a stub instead of shelling out.
 export function defaultGit(cwd, args) {
@@ -37,7 +39,7 @@ export function locateInstallRoot(startPath = fileURLToPath(import.meta.url), { 
     seen.add(dir);
     if (fs.existsSync(path.join(dir, ".git"))) {
       try { return git(dir, ["rev-parse", "--show-toplevel"]); }
-      catch { return dir; }
+      catch { /* malformed or unrelated marker; keep looking for a real checkout */ }
     }
     const parent = path.dirname(dir);
     if (parent === dir) break;
@@ -148,8 +150,13 @@ async function resolveNativeRelease({ baseUrl, releasesUrl, fetchImpl, target })
 }
 
 export async function runNativeUpdate({ baseUrl = process.env.HCODE_UPDATE_BASE_URL, releasesUrl = process.env.HCODE_UPDATE_RELEASES_URL,
-  fetchImpl = fetch, root = DEFAULT_INSTALL_ROOT, binDir = DEFAULT_BIN_DIR, target = nativeTarget(), spawnImpl } = {}) {
-  if (isNixRuntime()) return { ok: false, reason: "nix-managed", message: "this hcode is Nix-managed; update it through the owning flake/profile" };
+  fetchImpl = fetch, root = DEFAULT_INSTALL_ROOT, binDir = DEFAULT_BIN_DIR, target = nativeTarget(), spawnImpl,
+  runtimeIsNix = isNixManagedNative() } = {}) {
+  // A Node supplied by Nix is not itself a Nix-managed hcode. Source tests and source/npm hcode may
+  // quite correctly run under /nix/store/.../bin/node; only an hcode SEA executable in the store is
+  // immutable and must defer to its flake/profile. Keeping both halves of the classification here
+  // makes the same source suite truthful on god and on a non-Nix developer host.
+  if (runtimeIsNix) return { ok: false, reason: "nix-managed", message: "this hcode is Nix-managed; update it through the owning flake/profile" };
   const stage = fs.mkdtempSync(path.join(os.tmpdir(), "hcode-native-update-"));
   try {
     const release = await resolveNativeRelease({ baseUrl, releasesUrl, fetchImpl, target });

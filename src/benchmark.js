@@ -204,12 +204,18 @@ export function runMeasured(command, args, { cwd, env, timeoutMs = 6 * 60_000 } 
     let stdout = "", stderr = "", firstOutputMs = null, peakRssBytes = 0, cpuSeconds = 0, samples = 0, sampling = false, settled = false, forceKill = null;
     const add = (which, data) => { if (firstOutputMs === null) firstOutputMs = Date.now() - started; const text = data.toString(); if (which === "out") stdout = (stdout + text).slice(-MAX_CAPTURE); else stderr = (stderr + text).slice(-MAX_CAPTURE); };
     child.stdout.on("data", data => add("out", data)); child.stderr.on("data", data => add("err", data));
-    const intervalMs = 250;
-    const timer = setInterval(async () => {
-      if (sampling) return; sampling = true;
-      try { const rows = descendants(await psRows(), child.pid); peakRssBytes = Math.max(peakRssBytes, rows.reduce((sum, row) => sum + row[3] * 1024, 0)); cpuSeconds += rows.reduce((sum, row) => sum + row[2], 0) / 100 * intervalMs / 1000; samples++; }
-      finally { sampling = false; }
-    }, intervalMs); timer.unref?.();
+    const intervalMs = 250; let samplePromise = null;
+    const sample = () => {
+      if (sampling) return samplePromise;
+      sampling = true;
+      samplePromise = (async () => {
+        try { const rows = descendants(await psRows(), child.pid); peakRssBytes = Math.max(peakRssBytes, rows.reduce((sum, row) => sum + row[3] * 1024, 0)); cpuSeconds += rows.reduce((sum, row) => sum + row[2], 0) / 100 * intervalMs / 1000; samples++; }
+        finally { sampling = false; samplePromise = null; }
+      })();
+      return samplePromise;
+    };
+    const timer = setInterval(sample, intervalMs); timer.unref?.();
+    void sample();
     const stopTimers = () => { clearInterval(timer); clearTimeout(deadline); if (forceKill) clearTimeout(forceKill); };
     const killGroup = signal => { try { process.kill(-child.pid, signal); } catch { try { child.kill(signal); } catch {} } };
     let timedOut = false; const deadline = setTimeout(() => {
@@ -217,7 +223,7 @@ export function runMeasured(command, args, { cwd, env, timeoutMs = 6 * 60_000 } 
       forceKill = setTimeout(() => killGroup("SIGKILL"), 2000); forceKill.unref?.();
     }, timeoutMs); deadline.unref?.();
     child.once("error", error => { if (settled) return; settled = true; stopTimers(); reject(error); });
-    child.once("close", code => { if (settled) return; settled = true; stopTimers(); resolve({ code: code ?? 1, timedOut, wallMs: Date.now() - started, firstOutputMs, sampledCpuSeconds: Math.round(cpuSeconds * 1000) / 1000, peakRssBytes, samples, stdout, stderr }); });
+    child.once("close", async code => { if (settled) return; settled = true; stopTimers(); await samplePromise; resolve({ code: code ?? 1, timedOut, wallMs: Date.now() - started, firstOutputMs, sampledCpuSeconds: Math.round(cpuSeconds * 1000) / 1000, peakRssBytes, samples, stdout, stderr }); });
   });
 }
 

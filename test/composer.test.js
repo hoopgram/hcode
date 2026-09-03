@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { ACTIVITY_PULSE_MS, AGENT_ROWS_MAX, AGENT_VIEW_HINT, KEY_HELP, TerminalComposer, cleanPaste, displayWidth, goldenSweep, keyHelpRows, supportsComposer, wordLeft, wordRight } from "../src/composer.js";
+import { ACTIVITY_PULSE_MS, AGENT_ROWS_MAX, AGENT_VIEW_HINT, INPUT_FRAME, KEY_HELP, TerminalComposer, cleanPaste, displayWidth, goldenSweep, keyHelpRows, supportsComposer, wordLeft, wordRight } from "../src/composer.js";
+import { INPUT_THEME_TOKENS } from "../src/ui.js";
 import { commandMatches, commandsHelp, findCommand, matchedCommandToken } from "../src/commands.js";
 
 class FakeInput extends EventEmitter {
@@ -174,7 +175,7 @@ test("TTY composer reserves the physical bottom and restores the scroll region",
   assert.equal(composer.transcriptRow, 2, "after resetTranscript() the banner lands on row 1 and the transcript continues at row 2");
   composer.print("x".repeat(170) + "\n");
   assert.equal(composer.transcriptRow, 5, "a wrapped line counts the rows it occupies (170 cols on an 80-col page = 3 rows)");
-  assert.match(out.text, /\x1b\[22;3H/, "the input cursor returns to the fixed bottom frame");
+  assert.match(out.text, new RegExp(`\\x1b\\[22;${INPUT_FRAME.cursorPrefixCells + 1}H`), "the input cursor returns after the semantic frame prefix");
   out.rows = 30; out.emit("resize");
   assert.match(out.text, /\x1b\[1;26r/, "resize recomputes the transcript region");
   composer.close();
@@ -214,10 +215,10 @@ test("the input band follows light and dark terminal backgrounds without enterin
   assert.equal(composer.pending, "\x1b]11;rgb:0000/0000/0000", "a split OSC background reply waits for its terminator");
   composer.feed("\x07");
   assert.equal(composer.pending, ""); assert.equal(composer.buffer, ""); assert.equal(composer.fieldTheme, "dark");
-  assert.match(composer.fieldRow("› "), /^\x1b\[48;5;235m\x1b\[38;5;252m/);
+  assert.ok(composer.fieldRow("› ").startsWith(`${INPUT_FRAME.edgeInk}${INPUT_FRAME.edge}\x1b[0m${INPUT_THEME_TOKENS.dark.row}`));
   composer.feed("\x1b]11;rgb:ffff/ffff/ffff\x1b\\");
   assert.equal(composer.fieldTheme, "light");
-  assert.match(composer.fieldRow("› "), /^\x1b\[48;5;254m\x1b\[38;5;236m/);
+  assert.ok(composer.fieldRow("› ").startsWith(`${INPUT_FRAME.edgeInk}${INPUT_FRAME.edge}\x1b[0m${INPUT_THEME_TOKENS.light.row}`));
   composer.feed("\x1b]11;not-a-colour\x07owner");
   assert.equal(composer.buffer, "owner", "malformed terminal metadata is discarded, not inserted into the owner's draft");
 });
@@ -276,14 +277,15 @@ test("the input band is three whole rows of one ground, painted edge to edge", (
   const composer = new TerminalComposer({ input, output: out, env: { TERM: "xterm", HCODE_REDUCE_MOTION: "1", HCODE_INPUT_THEME: "light" } });
   composer.start();
   composer.feed("hello");
-  const band = composer.frameState.live.rows.filter(row => row.includes("\x1b[48;5;254m"));
+  const band = composer.frameState.live.rows.filter(row => row.includes(INPUT_THEME_TOKENS.light.row));
   const [above, typed, below] = band;
-  assert.equal(plain(typed).trimEnd(), "› hello", "the caret and the words sit on the middle row");
-  assert.equal(band.length, 3, "the field owns exactly the row above, the typed row and the row below");
+  assert.equal(plain(typed).slice(1, -1).trimEnd(), "› hello", "the caret and the words sit between the side edges");
+  assert.equal(band.length, INPUT_FRAME.rows, "the field owns exactly its semantic row budget");
   for (const [name, row] of [["the row above", above], ["the typed row", typed], ["the row below", below]]) {
     assert.equal(displayWidth(row), 80, `${name} is painted to the right edge — a background that stops at the text leaves a transparent notch`);
   }
-  assert.doesNotMatch(out.text, /─/, "the band is painted ground, not a drawn box, so a zoom cannot leave fragments of it behind");
+  assert.ok(band.every(row => plain(row).startsWith(INPUT_FRAME.edge) && plain(row).endsWith(INPUT_FRAME.edge)), "each live row has quiet gold side edges");
+  assert.doesNotMatch(out.text, /─/, "the band has no horizontal rule, so a zoom cannot leave fragments in scrollback");
   assert.equal(composer.scrollBottom, 16, "and it takes no row the transcript was using: the blank rows it replaced were already there");
   composer.close();
 });
@@ -296,7 +298,8 @@ test("the live frame repaints only a changed row and the work word carries a mov
   const { composer, out } = pinned({ env: { TERM: "xterm" } });
   composer.setBusy(true); composer.setActivity("Working", "work");
   const activity = composer.frameState.live.rows.find(row => plain(row).includes("Working"));
-  assert.match(plain(activity), /● Working · esc to interrupt/, "the active turn says how to stop it on the activity row");
+  assert.equal(plain(activity).trim(), "● Working", "the activity row names only the work instead of repeating the footer action");
+  assert.equal(plain(composer.frameState.live.rows.at(-1)), "  Esc interrupt", "the one footer row owns the busy action");
   out.text = "";
   composer.pulse++; composer.draw();
   assert.equal((out.text.match(/\x1b\[\d+;1H\x1b\[2K/g) || []).length, 1, "one pulse rewrites only the activity row, not the whole footer");
@@ -308,11 +311,11 @@ test("the band belongs to the live frame alone — a menu and a panel keep the o
   const { composer, out } = pinned();
   out.text = "";
   composer.select({ title: "Brain", options: [{ label: "A" }, { label: "B" }] });
-  assert.doesNotMatch(out.text, /\x1b\[48;5;254m/, "a decision is not a place to type, so it gets no field");
+  assert.ok(!out.text.includes(INPUT_THEME_TOKENS.light.row), "a decision is not a place to type, so it gets no field");
   composer.feed("\r");
   out.text = "";
   composer.openPager({ title: "Keys", lines: ["a"] });
-  assert.doesNotMatch(out.text, /\x1b\[48;5;254m/, "and neither is a read-only panel");
+  assert.ok(!out.text.includes(INPUT_THEME_TOKENS.light.row), "and neither is a read-only panel");
   composer.closePager();
   composer.close();
 });
@@ -549,30 +552,48 @@ test("suspend() hands the terminal to an editor and resume() takes it back", () 
   composer.close();
 });
 
-test("the footer gives keys and meter separate complete rows, or hides an overlong fact", () => {
+test("the footer is exactly one semantic-priority row at 40, 80 and 120 columns", () => {
   const { composer, out } = pinned();
   const before = composer.scrollBottom;
-  const hint = "Enter send · Shift+Enter newline · ? keys · Ctrl-C twice to exit";
 
   out.text = "";
   composer.setMeter({ text: "↓ 21.6K tokens · Context 67% left · 40K/120K · 4.5K cu", identity: { model: "deepseek-v4-pro", effort: "high", sessionMode: "savetoken", permission: "ask" }, band: "calm" });
-  assert.equal(composer.scrollBottom, before - 2, "identity and usage get their own rows instead of competing with the key hint");
-  let rows = composer.statusRows(hint);
-  assert.equal(rows.length, 3);
-  assert.equal(rows[0], `  \x1b[2m${hint}\x1b[0m`, "the key fact is shown whole and begins under the input cursor");
-  assert.match(rows[1], /\x1b\[33mdeepseek-v4-pro.*\x1b\[35mhigh.*\x1b\[36msavetoken.*\x1b\[34mask/, "model, effort, token mode and permission have distinct theme colors");
-  assert.match(rows[2], /^  \x1b\[38;5;6m↓ 21\.6K tokens · Context 67% left · 40K\/120K · 4\.5K cu\x1b\[0m$/, "tokens and context left get their own complete row");
-
-  composer.setMeter({ text: "↓ 12K tokens · Context 14% left · 103K/120K · $1.20 · /handoff", band: "danger" });
-  rows = composer.statusRows(hint);
-  assert.match(rows.at(-1), /\x1b\[1;38;5;1m↓ 12K tokens · Context 14% left · 103K\/120K · \$1\.20 · \/handoff\x1b\[0m$/, "the complete danger fact has its own ink");
+  assert.equal(composer.scrollBottom, before, "meter facts never make the footer taller");
+  for (const columns of [80, 120]) {
+    composer.columns = columns;
+    const rows = composer.statusRows("Enter send");
+    assert.equal(rows.length, 1, `${columns}: one physical row`);
+    assert.equal(plain(rows[0]), "  Enter send · deepseek-v4-pro · Context 67% left");
+    assert.ok(displayWidth(rows[0]) <= columns, `${columns}: no terminal wrap`);
+    assert.doesNotMatch(rows[0], /[\r\n]/);
+  }
 
   composer.columns = 40;
-  assert.deepEqual(composer.statusRows(hint), [], "at a narrow width neither fact is printed partially");
+  let rows = composer.statusRows("Enter send");
+  assert.equal(rows.length, 1);
+  assert.equal(plain(rows[0]), "  Enter send · deepseek-v4-pro", "the lowest-priority context field hides whole at 40 columns");
+  assert.ok(displayWidth(rows[0]) <= 40);
+  assert.doesNotMatch(plain(rows[0]), /Context|tokens|cu|high|savetoken|ask|keys|Ctrl|Shift/);
 
+  rows = composer.statusRows("Esc interrupt");
+  assert.equal(plain(rows[0]), "  Esc interrupt · deepseek-v4-pro", "busy keeps the interrupt key ahead of identity");
+  assert.ok(displayWidth(rows[0]) <= 40);
+
+  composer.setMeter({ text: "↓ 12K tokens · Context 14% left · 103K/120K · $1.20 · /handoff", band: "danger" });
   composer.columns = 80;
+  rows = composer.statusRows("Enter send");
+  assert.equal(rows.length, 1);
+  assert.equal(plain(rows[0]), "  Enter send · Context 14% left", "danger remains understandable without its colour or token/cost detail");
+  assert.match(rows[0], /\x1b\[1;38;5;1mContext 14% left\x1b\[0m/);
+  assert.doesNotMatch(plain(rows[0]), /12K|103K|\$1\.20|handoff/);
+
   composer.setMeter(null);
-  assert.deepEqual(composer.statusRows(hint), [`  \x1b[2m${hint}\x1b[0m`], "with no meter only the complete indented key row remains");
+  assert.equal(plain(composer.statusRows("Enter send")[0]), "  Enter send", "the action row exists even before a meter does");
+
+  composer.columns = 40;
+  composer.setMeter({ text: "↓ 0 tokens · Context 97% left · 3.4K/120K · 0 cu", identity: { model: "a-model-name-that-cannot-fit-as-a-complete-field-at-this-width" }, band: "calm" });
+  rows = composer.statusRows("Enter send");
+  assert.equal(plain(rows[0]), "  Enter send", "an overlong higher-priority field and everything below it hide whole");
   composer.close();
 });
 

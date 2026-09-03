@@ -20,7 +20,7 @@
 // command segmentation); policy.js re-exports `globToRegex` so its long-standing importers are unchanged.
 import fs from "node:fs";
 import path from "node:path";
-import { HOME } from "./config.js";
+import { HOME, readJson } from "./config.js";
 
 export const ACTIONS = ["deny", "ask", "allow"];
 export const RULE_FIELDS = new Set(["tool", "command", "path", "action", "why"]);
@@ -79,7 +79,7 @@ export function commandSegments(command) {
 }
 
 // ---- reading the rule book --------------------------------------------------------------------------
-function readJson(file) { try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch { return null; } }
+// readJson is shared from config.js (identical try/JSON.parse/catch-null behavior, formerly duplicated here).
 
 // One row, checked field by field. A malformed rule is dropped with a named problem rather than silently
 // reinterpreted: a rule the owner cannot see the effect of is worse than no rule.

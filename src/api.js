@@ -7,12 +7,74 @@ import { VERSION, isLocalBrain } from "./config.js";
 export const DEFAULT_TIMEOUT_MS = 15 * 60 * 1000;
 export const MAX_ATTEMPTS = 3;            // one call = at most 3 tries; the model call itself has no side effects
 
+// One predicate for every field only Anthropic's own Messages API is known to accept
+// (output_config.effort, cache_control). A DeepSeek / z.ai / llama.cpp gateway speaking the same
+// protocol may answer 400 for a field it does not know, so nothing native-only leaves this gate.
+export function isNativeClaude(model) {
+  return /^claude-(?:sonnet|opus|fable|mythos)/i.test(String(model || ""));
+}
+
 // Current Claude models accept the native Messages API effort control. Other
 // Anthropic-compatible brains keep the same portable tier in the hcode system
 // prompt instead of receiving a field their gateway may reject.
+// Effort must stay stable for a whole session: the resolved effort level is rendered into the
+// prompt itself, so changing it (or the thinking config) starts a NEW cache prefix and every
+// breakpoint below misses. Changing effort mid-session costs a full-price re-read of the history.
 export function nativeEffortConfig(model, effort) {
-  if (!effort || !/^claude-(?:sonnet|opus|fable|mythos)/i.test(String(model || ""))) return null;
+  if (!effort || !isNativeClaude(model)) return null;
   return { effort };
+}
+
+// Prompt caching. Without a breakpoint a 30-step session pays full price for the same
+// system + tools + history prefix thirty times; with one, that prefix is read back at 0.1x.
+//   auto (default)  one top-level `cache_control`; the API puts the breakpoint on the last
+//                   cacheable block and moves it forward as the conversation grows - the
+//                   documented starting point for multi-turn work, and it never touches
+//                   `messages` at all (hcode's message list is a projection of the session
+//                   ledger and must not be mutated).
+//   explicit        breakpoints placed by hand in the documented order tools -> system ->
+//                   messages (3, under the limit of 4), so the stable tools+system prefix keeps
+//                   its own cache entry even when the tail of the conversation churns.
+// TTL is one value per request (default 5m, `1h` at 2x write price); hcode never mixes the two,
+// which is what the "long TTL before short TTL" ordering rule is about.
+export function promptCacheMode(cfg = {}) {
+  if (!isNativeClaude(cfg.model)) return false;             // never send a native-only field elsewhere
+  const setting = cfg.promptCache;
+  if (setting === false) return false;
+  return setting === "explicit" ? "explicit" : "auto";
+}
+
+const CACHEABLE_BLOCK = new Set(["text", "tool_result", "image", "document", "search_result"]);
+
+// Returns the body with cache breakpoints added. Never mutates `messages`, its message objects
+// or their content arrays - every touched level is copied first.
+export function applyPromptCache(body, cfg = {}) {
+  const mode = promptCacheMode(cfg);
+  if (!mode) return body;
+  const ttl = cfg.cacheTtl === "1h" ? { type: "ephemeral", ttl: "1h" } : { type: "ephemeral" };
+  const mark = () => ({ ...ttl });
+  if (mode === "auto") { body.cache_control = mark(); return body; }
+  if (Array.isArray(body.tools) && body.tools.length)
+    body.tools = body.tools.map((tool, i) => i === body.tools.length - 1 ? { ...tool, cache_control: mark() } : tool);
+  if (typeof body.system === "string" && body.system)
+    body.system = [{ type: "text", text: body.system, cache_control: mark() }];
+  else if (Array.isArray(body.system) && body.system.length)
+    body.system = body.system.map((block, i) => i === body.system.length - 1 ? { ...block, cache_control: mark() } : block);
+  const messages = Array.isArray(body.messages) ? body.messages : [];
+  let at = -1;
+  for (let i = messages.length - 1; i >= 0; i--) if (messages[i]?.role === "user") { at = i; break; }
+  if (at < 0) return body;
+  const message = messages[at];
+  if (typeof message.content === "string" && message.content) {
+    body.messages = messages.map((m, i) => i === at ? { ...m, content: [{ type: "text", text: m.content, cache_control: mark() }] } : m);
+    return body;
+  }
+  if (!Array.isArray(message.content) || !message.content.length) return body;
+  const last = message.content[message.content.length - 1];
+  if (!CACHEABLE_BLOCK.has(last?.type)) return body;        // a thinking block cannot carry cache_control
+  const content = message.content.map((block, i) => i === message.content.length - 1 ? { ...block, cache_control: mark() } : block);
+  body.messages = messages.map((m, i) => i === at ? { ...m, content } : m);
+  return body;
 }
 
 // DeepSeek's Anthropic-compatible gateway ignores budget_tokens and reasoning_effort but
@@ -251,6 +313,7 @@ async function streamOnce(cfg, { system, messages, tools, onText, signal }) {
   if (thinking) body.thinking = thinking;
   if (system) body.system = system;
   if (tools && tools.length) body.tools = tools;
+  applyPromptCache(body, cfg);   // last: the breakpoints depend on the finished system/tools/messages
   const res = await postJson(cfg, "/v1/messages", body, { signal, headers });
   if (!res.ok) {
     const text = await res.text();
@@ -315,6 +378,8 @@ async function streamOnce(cfg, { system, messages, tools, onText, signal }) {
   return { content: blocks.filter(Boolean), stopReason, usage };
 }
 
+// The offline retry reuses the SAME body (cache breakpoints included), so a fallback turn is
+// billed against the same cached prefix as the streamed attempt that preceded it.
 async function nonStreamingMessage(cfg, { headers, body, onText, signal }) {
   const res = await postJson(cfg, "/v1/messages", { ...body, stream: false }, { signal, headers });
   if (!res.ok) throw new ApiError(res.status, await res.text());

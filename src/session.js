@@ -10,6 +10,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
+import { canonical } from "./canonical.js";
 
 // Truncation keeps both ends: the head says what happened, the tail says how it ended, and the middle is counted.
 // (A8 HC-10: keeping only the tail here and only the head there ate both ends of a large output.)
@@ -23,11 +24,7 @@ export function headTail(text, max, label = "characters") {
 export const SIDE_EFFECT_RISKS = new Set(["write", "destructive", "money", "identity", "network", "external"]);
 export const hasSideEffect = risk => (risk || []).some(r => SIDE_EFFECT_RISKS.has(r));
 
-export function canonical(value) {
-  if (Array.isArray(value)) return "[" + value.map(canonical).join(",") + "]";
-  if (value && typeof value === "object") return "{" + Object.keys(value).sort().map(k => JSON.stringify(k) + ":" + canonical(value[k])).join(",") + "}";
-  return JSON.stringify(value);
-}
+export { canonical };
 export const idemKey = (tool, input, turn) => "sha256:" + crypto.createHash("sha256").update(tool + canonical(input || {}) + turn).digest("hex");
 export const newItemId = () => "i-" + crypto.randomBytes(3).toString("hex");
 const CHILD_ID_RE = /^c-[0-9a-f]{4,12}$/;

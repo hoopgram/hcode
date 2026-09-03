@@ -12,7 +12,7 @@ const HOME_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "hcode-update-home-"));
 process.env.HCODE_HOME = HOME_DIR;               // must be set before ../src/update.js computes STATE_FILE
 const STATE_FILE = path.join(HOME_DIR, "update", "state.json");
 
-const { compareVersions, locateInstallRoot, readGitState, planUpdate, runNativeUpdate, runUpdate, readVersion, selectNativeRelease, updateSummaryLine, readUpdateState, startBackgroundUpdate } =
+const { compareVersions, isNixManagedNative, locateInstallRoot, readGitState, planUpdate, runNativeUpdate, runUpdate, readVersion, selectNativeRelease, updateSummaryLine, readUpdateState, startBackgroundUpdate } =
   await import("../src/update.js");
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "hcode-update-"));
@@ -50,7 +50,8 @@ test("locateInstallRoot walks up from a nested module path to the git worktree r
 });
 
 test("locateInstallRoot refuses when hcode's own file is not inside any git checkout", () => {
-  const dir = tmp(); const file = path.join(dir, "src", "update.js");
+  const dir = tmp(); const file = path.join(dir, "nested", "src", "update.js");
+  fs.mkdirSync(path.join(dir, "nested", ".git"), { recursive: true }); // an inert marker is not a checkout
   fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, "// fixture\n");
   assert.throws(() => locateInstallRoot(file), /not inside a git checkout/);
 });
@@ -214,13 +215,24 @@ test("native update downloads verified bytes, switches once, and rejects a bad d
   const manifest = { schema: 1, product: "hcode", version: "9.9.9", source: { dirty: false, commit: "a".repeat(40), hcodeTree: "b".repeat(40) },
     artifacts: [{ target, file: `hcode-v9.9.9-${target}`, bytes: candidate.length, sha256: digest, verified: true }] };
   const fetchImpl = async url => new Response(String(url).endsWith("native-manifest.json") ? JSON.stringify(manifest) : candidate);
-  const result = await runNativeUpdate({ baseUrl: "https://release.test/", fetchImpl, root, binDir, target });
+  const result = await runNativeUpdate({ baseUrl: "https://release.test/", fetchImpl, root, binDir, target, runtimeIsNix: false });
   assert.equal(result.ok, true); assert.equal(result.newVersion, "9.9.9"); assert.equal(fs.realpathSync(path.join(binDir, "hcode")), fs.realpathSync(path.join(root, "versions", "9.9.9", "hcode")));
   const before = fs.realpathSync(path.join(root, "current"));
   const broken = { ...manifest, version: "9.9.10", artifacts: [{ ...manifest.artifacts[0], file: `hcode-v9.9.10-${target}`, sha256: "0".repeat(64) }] };
   const badFetch = async url => new Response(String(url).endsWith("native-manifest.json") ? JSON.stringify(broken) : candidate);
-  await assert.rejects(() => runNativeUpdate({ baseUrl: "https://release.test/", fetchImpl: badFetch, root, binDir, target }), /sha256/);
+  await assert.rejects(() => runNativeUpdate({ baseUrl: "https://release.test/", fetchImpl: badFetch, root, binDir, target, runtimeIsNix: false }), /sha256/);
   assert.equal(fs.realpathSync(path.join(root, "current")), before);
+});
+
+test("a Nix-provided source Node is not mistaken for a Nix-managed hcode executable", async () => {
+  // This file intentionally runs under the host's real Node. On god that executable is in
+  // /nix/store, while hcode is still ordinary source (sea.isSea() is false). Reaching release
+  // validation proves runNativeUpdate did not return the old false `nix-managed` result.
+  assert.equal(isNixManagedNative(false, true), false, "Nix Node + source hcode is source, not a Nix install");
+  assert.equal(isNixManagedNative(true, true), true, "an hcode SEA in the store remains Nix-managed");
+  let fetched = false;
+  await assert.rejects(() => runNativeUpdate({ baseUrl: "http://release.test/", fetchImpl: async () => { fetched = true; } }), /require HTTPS/);
+  assert.equal(fetched, false);
 });
 
 test("native release discovery includes prereleases, ignores drafts, and takes the highest supported version", () => {
@@ -254,7 +266,7 @@ test("native update discovers the newest published prerelease instead of GitHub 
     ] }]));
     return new Response(value.endsWith("native-manifest.json") ? JSON.stringify(manifest) : candidate);
   };
-  const result = await runNativeUpdate({ releasesUrl: "https://api.github.test/releases", fetchImpl, root, binDir, target });
+  const result = await runNativeUpdate({ releasesUrl: "https://api.github.test/releases", fetchImpl, root, binDir, target, runtimeIsNix: false });
   assert.equal(result.newVersion, "9.9.9");
   assert.match(seen[0], /api\.github\.test/);
   assert.equal(seen.some(url => url.includes("releases/latest")), false);
@@ -262,6 +274,6 @@ test("native update discovers the newest published prerelease instead of GitHub 
 
 test("native release discovery refuses an insecure API before sending a request", async () => {
   let fetched = false;
-  await assert.rejects(() => runNativeUpdate({ releasesUrl: "http://release.test/releases", fetchImpl: async () => { fetched = true; } }), /require HTTPS/);
+  await assert.rejects(() => runNativeUpdate({ releasesUrl: "http://release.test/releases", fetchImpl: async () => { fetched = true; }, runtimeIsNix: false }), /require HTTPS/);
   assert.equal(fetched, false);
 });

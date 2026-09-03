@@ -41,6 +41,14 @@ export function formatSpend(elapsedMs, tokens) {
   return n ? `${clock} · ↓ ${formatTokens(n)} tokens` : clock;
 }
 
+export function formatWelcomeDate(value = new Date()) {
+  const date = value instanceof Date ? value : new Date(value);
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const hour = String(date.getHours()).padStart(2, "0");
+  const minute = String(date.getMinutes()).padStart(2, "0");
+  return `${date.getDate()} ${months[date.getMonth()]} ${date.getFullYear()} ${hour}:${minute}${date.getHours() >= 12 ? "PM" : "AM"}`;
+}
+
 export function supportsColor(stream, env = process.env) {
   return Boolean(stream?.isTTY) && !has(env, "NO_COLOR") && String(env?.TERM || "").toLowerCase() !== "dumb";
 }
@@ -67,12 +75,16 @@ export function themeFromRgb(red, green, blue) {
   return 0.299 * r + 0.587 * g + 0.114 * b >= 0.55 ? "light" : "dark";
 }
 
+export const INPUT_THEME_TOKENS = Object.freeze({
+  dark: Object.freeze({ row: "\x1b[48;5;234m\x1b[38;5;252m", text: "\x1b[38;5;252m", command: "\x1b[1;38;2;255;214;10m", backgroundRgb: [28, 28, 28], commandRgb: [255, 214, 10] }),
+  light: Object.freeze({ row: "\x1b[48;5;255m\x1b[38;5;236m", text: "\x1b[38;5;236m", command: "\x1b[1;38;2;169;120;0m", backgroundRgb: [238, 238, 238], commandRgb: [169, 120, 0] }),
+  auto: Object.freeze({ row: "\x1b[49m\x1b[39m", text: "\x1b[39m", command: "\x1b[1;38;2;169;120;0m", backgroundRgb: null, commandRgb: [169, 120, 0] }),
+});
+
 export function inputStyle(theme = "auto") {
   // Pure yellow on a light field has so little contrast that terminals may protect readability
   // by replacing it with black. Keep the luminous yellow on dark, and use a clear gold on light.
-  if (theme === "dark") return Object.freeze({ row: "\x1b[48;5;235m\x1b[38;5;252m", text: "\x1b[38;5;252m", command: "\x1b[1;38;2;255;214;10m" });
-  if (theme === "light") return Object.freeze({ row: "\x1b[48;5;254m\x1b[38;5;236m", text: "\x1b[38;5;236m", command: "\x1b[1;38;2;169;120;0m" });
-  return Object.freeze({ row: "\x1b[49m\x1b[39m", text: "\x1b[39m", command: "\x1b[1;38;2;169;120;0m" });
+  return INPUT_THEME_TOKENS[theme] || INPUT_THEME_TOKENS.auto;
 }
 
 // Colour here is a semantic role, never decoration: one meaning gets one ink everywhere it is
@@ -338,7 +350,16 @@ export function createUI({ out = process.stdout, err = process.stderr, env = pro
   // One semantic table feeds all three render paths. Readline paints active/done here; composer
   // receives the same active/kind through setActivity(); plain output keeps the same words without
   // terminal control. Do not restate these labels in composer.js.
+  // Reads that run together share the one activity row, so the row says the first call's own words and how
+  // many are running beside it. Without this, four starts in a row would each overwrite the last and the
+  // owner would be told about exactly one of four. Only the live "active" wording changes; a finished call
+  // still reports itself, one line each, after the batch settles.
   const toolAction = (label, meta = {}) => {
+    const action = describeTool(label, meta);
+    const others = Math.max(0, Number(meta.batch || 0) - 1);
+    return others ? { ...action, active: `${action.active} +${others} more` } : action;
+  };
+  const describeTool = (label, meta = {}) => {
     const name = String(meta.name || ""); const input = meta.input || {};
     const target = displayTarget(input.path || input.file_path || "");
     if (name === "read_file") return { active: `Reading ${target || "file"}`, done: `Read ${target || "file"}`, quiet: true, kind: "reading" };
@@ -391,6 +412,8 @@ export function createUI({ out = process.stdout, err = process.stderr, env = pro
       // nobody was here. Warm enough to be noticed, quiet enough to be declined.
       const pad = line => "  " + line;
       const compact = `${visiblePath(cfg.cwd, env)} · ${runner === "hcode" ? "Hoop Code" : runner === "codex" ? "Codex" : "Claude Code"} · ${modeLabel(cfg.mode)}`;
+      writeLine();
+      writeLine(pad(paper.dim(formatWelcomeDate())));
       writeLine();
       if (live) {
         const runnerName = runner === "hcode" ? "Hoop Code" : runner === "codex" ? "Codex" : "Claude Code";

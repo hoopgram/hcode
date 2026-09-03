@@ -50,6 +50,7 @@ export const AGENT_ROWS_MAX = 4;
 // One dim line so the panel can be found without being looked for. It is only ever painted when
 // there is something to open — a hint under an empty board is furniture advertising itself.
 export const AGENT_VIEW_HINT = "ctrl+f view agents";
+export const INPUT_FRAME = Object.freeze({ rows: 3, sideCells: 2, cursorPrefixCells: 3, edge: "│", edgeInk: "\x1b[38;5;214m" });
 const has = (object, key) => Object.prototype.hasOwnProperty.call(object || {}, key);
 // The transcript ring's default depth. A terminal is at most ~100 rows, so this is roughly
 // twenty screens the composer can put back on the page, at a few hundred bytes a line.
@@ -290,10 +291,17 @@ export class TerminalComposer extends EventEmitter {
   }
 
   setBusy(value) { this.busy = Boolean(value); this.draw(); }
-  // The context/spend meter, decided in cost.js and only painted here: { text, band }. Observation
-  // is on by default — the owner should not have to write a statusline script to find out what a
-  // turn is costing. It owns its own complete footer row, never a truncated half beside the keys.
-  setMeter(value) { this.meter = value && value.text ? { text: String(value.text), identity: value.identity && typeof value.identity === "object" ? { ...value.identity } : null, band: String(value.band || "calm") } : null; this.draw(); }
+  // cost.js remains the truth for the meter. The footer projects only the two facts the owner
+  // needs continuously — model and context remaining — while /cost and /status keep the complete
+  // token/cost account. Pull the already-formatted context phrase out whole; never recompute it.
+  setMeter(value) {
+    if (!value?.text) this.meter = null;
+    else {
+      const text = String(value.text); const context = /(?:^| · )(Context \d+% left)(?: · |$)/.exec(text)?.[1] || "";
+      this.meter = { text, context, identity: value.identity && typeof value.identity === "object" ? { ...value.identity } : null, band: String(value.band || "calm") };
+    }
+    this.draw();
+  }
   setQueueCount(value) { this.applyInput({ type: "queue.set", count: value }); this.draw(); }
   addAttachment(image) { this.attachments.push(image); this.attachmentStatus = ""; this.draw(); }
   setAttachmentStatus(value) { this.attachmentStatus = String(value || ""); this.draw(); }
@@ -400,33 +408,29 @@ export class TerminalComposer extends EventEmitter {
     this.draw();
   }
 
-  // The footer is three independent facts on their own rows: keys, identity, then context/spend.
-  // A fact is either present in full or absent — terminal wrapping must never turn half a shortcut or
-  // half a budget into UI. Band colours follow the terminal theme: calm cyan, warning gold, danger red.
+  // One footer row, in semantic order: the action the owner can take now, model, context remaining.
+  // A fact is either present in full or absent. Narrow terminals stop at the last complete fact,
+  // so terminal wrapping can never turn a model or budget into an unexplained fragment. The words
+  // carry the meaning; colour is only a second channel for the context band.
   static BAND_INK = Object.freeze({ calm: "\x1b[38;5;6m", warn: "\x1b[38;5;3m", danger: "\x1b[1;38;5;1m" });
 
-  meterIdentity() {
-    const identity = this.meter?.identity;
-    if (!identity) return "";
-    const fields = [
-      [identity.model, "\x1b[33m"], [identity.effort, "\x1b[35m"],
-      [identity.sessionMode, "\x1b[36m"], [identity.permission, "\x1b[34m"],
-    ].filter(([value]) => value).map(([value, ink]) => `${ink}${visible(value)}\x1b[0m`);
-    return fields.join("\x1b[2m · \x1b[0m");
-  }
-
-  statusRows(hint) {
+  statusRows(action) {
     const gutter = "  ";
     const width = Math.min(Math.max(0, this.columns - 4), 92);
-    const rows = [];
-    if (hint && displayWidth(hint) <= width) rows.push(`${gutter}\x1b[2m${hint}\x1b[0m`);
-    const identity = this.meterIdentity();
-    if (identity && displayWidth(identity) <= width) rows.push(`${gutter}${identity}`);
-    if (this.meter && displayWidth(this.meter.text) <= width) {
-      const ink = TerminalComposer.BAND_INK[this.meter.band] || TerminalComposer.BAND_INK.calm;
-      rows.push(`${gutter}${ink}${this.meter.text}\x1b[0m`);
+    const facts = [
+      { text: visible(action), ink: "\x1b[2m" },
+      { text: visible(this.meter?.identity?.model), ink: "\x1b[33m" },
+      { text: this.meter?.context || "", ink: TerminalComposer.BAND_INK[this.meter?.band] || TerminalComposer.BAND_INK.calm },
+    ];
+    const kept = [];
+    for (const fact of facts) {
+      if (!fact.text) continue;
+      const candidate = [...kept.map(item => item.text), fact.text].join(" · ");
+      if (displayWidth(candidate) > width) break;
+      kept.push(fact);
     }
-    return rows;
+    const row = kept.map(fact => `${fact.ink}${fact.text}\x1b[0m`).join("\x1b[2m · \x1b[0m");
+    return [`${gutter}${row}`];
   }
 
   // The ink of the input band: a light ground with dark text on it, the same field colour the
@@ -438,8 +442,10 @@ export class TerminalComposer extends EventEmitter {
   // reads as a rendering bug, not as a field. The row is padded to the full width before the ink
   // is reset, and it is rebuilt every draw, so a zoom simply paints a wider rectangle.
   fieldRow(content = "") {
-    const pad = Math.max(0, this.columns - displayWidth(content));
-    return `${inputStyle(this.fieldTheme || "auto").row}${content}${" ".repeat(pad)}\x1b[0m`;
+    const inner = Math.max(0, this.columns - INPUT_FRAME.sideCells);
+    const pad = Math.max(0, inner - displayWidth(content));
+    const edge = `${INPUT_FRAME.edgeInk}${INPUT_FRAME.edge}\x1b[0m`;
+    return `${edge}${inputStyle(this.fieldTheme || "auto").row}${content}${" ".repeat(pad)}\x1b[0m${edge}`;
   }
 
   // Colour only a command hcode can resolve exactly. The reset restores the field's own dark ink,
@@ -1233,8 +1239,7 @@ export class TerminalComposer extends EventEmitter {
       // Activity ("Thinking", "Running", …) lives above the input box with a blank row on
       // each side, so it never reads as part of the box or of the transcript.
       const beam = goldenSweep(this.activity.label, this.pulse, { reduced: has(this.env, "HCODE_REDUCE_MOTION"), plain: has(this.env, "NO_COLOR") });
-      const interrupt = this.busy ? " \x1b[2m· esc to interrupt\x1b[0m" : "";
-      const activity = `\x1b[38;5;214m●\x1b[0m ${beam}${this.mainTurnMeter()}${interrupt}`;
+      const activity = `\x1b[38;5;214m●\x1b[0m ${beam}${this.mainTurnMeter()}`;
       rows.push(`  ${fitAnsi(activity, Math.max(1, this.columns - 4))}`, "");
     }
     if (matches.length) {
@@ -1267,13 +1272,11 @@ export class TerminalComposer extends EventEmitter {
     // looking, and the helpers sit between it and the status footer the way a footnote sits under
     // the text it belongs to.
     rows.push(...this.agentRows());
-    const queue = this.queueCount ? ` · ${this.queueCount} queued` : "";
-    // Short on purpose: `?` now carries the whole key table. Every segment here is one the owner
-    // needs before they have thought to press `?`; the meter gets its own complete row below.
-    const hint = this.search ? "Ctrl-R again · Enter accepts · Esc keeps draft"
-      : `${this.busy ? "Enter queues" : "Enter send"} · Shift+Enter newline · ? keys · Ctrl-C twice to exit${queue}`;
-    rows.push(...this.statusRows(hint));
-    const prefix = 2;
+    // Full keys live behind `?`; token/cost lives in /cost or /status; permission lives in
+    // /permissions. The footer says only what matters before the owner asks for those details.
+    const action = this.search ? "Enter accepts" : this.busy ? "Esc interrupt" : "Enter send";
+    rows.push(...this.statusRows(action));
+    const prefix = INPUT_FRAME.cursorPrefixCells;
     this.paint({ rows, cursorRow, cursorColumn: prefix + Math.min(max, view.column) + 1 });
   }
 

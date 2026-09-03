@@ -13,6 +13,10 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const BIN = path.join(here, "..", "bin", "hcode.js");
 const home = fs.mkdtempSync(path.join(os.tmpdir(), "hcode-home-"));
 process.env.HCODE_HOME = home;                       // config.js reads it at import time
+// These tests exercise hcode's own direct model call against a fake brain, so the runner is pinned:
+// the default runner is now the first external CLI on PATH, and a codex or claude the developer
+// happens to have installed would otherwise silently run the turn (and reach the network).
+process.env.HCODE_RUNNER = "hcode";   // "direct" under its on-the-wire name
 const { parseArgs, sessionsTable, toolsTable } = await import("../src/cli.js");
 const { VERSION } = await import("../src/config.js");
 const { listRunners, boundedArgs, removeRunner, addRunner, runExternal, makeTranslator, lastForeignSession, assertSafeExternalWorkspace, externalRunnerEnv, externalWrites } = await import("../src/runners.js");

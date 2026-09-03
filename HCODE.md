@@ -1,6 +1,6 @@
 # HCODE.md — project instructions for coding agents
 
-Humans and agents start with `DEVELOPING.md`; `ARCHITECTURE.md` owns the system map. This file is the compact
+Humans and agents start with `START-HERE.md`; `ARCHITECTURE.md` owns the system map. This file is the compact
 set of hard project instructions hcode injects into a coding turn, not a second development guide.
 
 ## Purpose
@@ -41,25 +41,7 @@ Run both before finishing a change.
 
 ## File map
 
-- `ARCHITECTURE.md` — ten-minute system map, event loop, render paths, change routing, and test gates.
-- `bin/hcode.js` — entrypoint; calls `main()` from `src/cli.js`.
-- `src/runtime.js` — one source/native/Nix identity, resource and self-relaunch contract.
-- `src/native-install.js`, `src/update.js` — verify, atomically switch, update and roll back native versions;
-  source updates remain Git-only and Nix remains externally managed.
-- `scripts/build-native.mjs` — pinned Node 24 LTS + CommonJS SEA candidate recipe; release artifacts are
-  accepted only after host-native probes in `.github/workflows/hcode-native-ci.yml`.
-- `src/cli.js` — command surface: interactive, one task, `-p` print mode, `--resume`, `connect`, `doctor`, `sessions`, `--version`, `--help`.
-- `src/agent.js` — agent loop (prompt → stream → run tools with permissions); loads `HCODE.md`/`AGENTS.md`/`CLAUDE.md`.
-- `src/api.js` — Anthropic Messages API streaming (SSE) with tool use; `ApiError`, `sseEvents`, `streamMessage`.
-- `src/config.js` — config resolution (cli > env `HCODE_*`/`ANTHROPIC_*` > `~/.hcode/config.json` > defaults); `VERSION`, `HOME`, `ON_HOOP`.
-- `src/connect.js` — `hcode connect <name>`: SSH tunnel to your Hoop's keyproxy.
-- `src/doctor.js` — `hcode doctor` diagnostics (config source, brain check, write check).
-- `src/session.js` — JSONL sessions (`~/.hcode/sessions/`); resume support.
-- `src/tools.js` — the tool belt, path/secret guards, glob/regex helpers, allow-list matching.
-- `src/web-search.js` — fixed-provider public search; query in, source-labelled results out, never an arbitrary URL fetch.
-- `src/ui.js` — plain terminal output helpers, colours, `ui`.
-  `createUI({out,err,env,columns})` is the injected renderer used by tests; it never owns session state.
-- `src/brain.js` — read-only brain discovery plus owner-selected runner persistence; credentials never pass through it.
+See [ARCHITECTURE.md § 8. File table](ARCHITECTURE.md#8-file-table) for the full file-by-file map of `bin/`, `src/`, and `scripts/`.
 
 ## Commit style
 
@@ -84,10 +66,8 @@ nothing here needs a server.
    the commit gate. Do not restart the full suite after every assertion fix; use it to close the
    integrated change. Commit by owner-visible topic and report in one line. Interactive check when
    needed: `hcode` (composer) — it always runs the current worktree.
-4. **Three render paths, every UI change:** the composer (bottom-pinned box, `src/composer.js`),
-   the readline path (`ui.prompt()` in `src/ui.js`), and the plain sink (`--print`, pipes,
-   `NO_COLOR`) which must stay byte-for-byte unchanged. A change that only lands in one of the
-   first two is not done — the owner sees the composer, tests mostly see the readline path.
+4. **Three render paths, every UI change:** see `ARCHITECTURE.md` §3 — a change landing in only
+   one path is not done.
 5. **Tests describe the shape.** Assert on `stripAnsi(out.text)` (drop `\r` and `\x1b[2K` for
    redrawn activity lines). Composer frame tests pin row numbers: adding a frame row shifts
    `\x1b[1;Nr`, the print row and the cursor row by one — update them deliberately, never loosen them.

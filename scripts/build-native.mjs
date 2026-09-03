@@ -87,11 +87,14 @@ export async function buildNative({ targets = [hostTarget()], outDir = path.join
     await build({ entryPoints: [path.join(root, "src", "native-entry.js")], outfile: bundle, bundle: true, platform: "node", format: "cjs", target: "node24", sourcemap: false, legalComments: "none",
       define: { "import.meta.url": JSON.stringify("file:///hcode-native/hcode.bundle.cjs") } });
     fs.copyFileSync(path.join(root, "FULL-AGENCY.md"), path.join(tempRoot, "FULL-AGENCY.md"));
+    fs.copyFileSync(path.join(root, "package.json"), path.join(tempRoot, "package.json"));
     const hostNode = await nodeExecutable(hostTarget(), cache, tempRoot);
     const config = path.join(tempRoot, "sea.json"); const blob = path.join(tempRoot, "hcode.blob");
     fs.writeFileSync(config, JSON.stringify({ main: "hcode.bundle.cjs", output: "hcode.blob",
       disableExperimentalSEAWarning: true, useSnapshot: false, useCodeCache: false,
-      assets: { "FULL-AGENCY.md": "FULL-AGENCY.md" } }, null, 2) + "\n");
+      // package.json is embedded so src/config.js can read VERSION from the same field the build
+      // script probes against below, instead of a second hardcoded literal that can go stale.
+      assets: { "FULL-AGENCY.md": "FULL-AGENCY.md", "package.json": "package.json" } }, null, 2) + "\n");
     run(hostNode, ["--experimental-sea-config", "sea.json"], { cwd: tempRoot });
     const artifacts = [];
     for (const target of targets) {

@@ -9,6 +9,10 @@ import { Session } from "../src/session.js";
 import { runMission, objectivePrompt } from "../src/mission.js";
 import { startFakeModel, text } from "./fake-model.js";
 
+// These tests exercise hcode's own direct model call against a fake brain, so the runner is pinned:
+// the default runner is now the first external CLI on PATH, and a codex or claude the developer
+// happens to have installed would otherwise silently run the turn (and reach the network).
+process.env.HCODE_RUNNER = "hcode";   // "direct" under its on-the-wire name
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "hcode-mission-"));
 const bin = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "bin", "hcode.js");
 const runCli = (args, env) => new Promise(resolve => {

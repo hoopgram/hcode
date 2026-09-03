@@ -8,28 +8,24 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { HOME } from "./config.js";
+import { EXTERNAL_BINS, findBinary } from "./runner-bins.js";
 import { isSecretPath, risksOf } from "./tools.js";
 import { escapeControls } from "./ui.js";
 import { attachmentMetadata, runnerPromptWithImages, userMessageContent, validateRunnerImages } from "./attachments.js";
 import { presence } from "./presence.js";
 
 export const EXTERNAL = {
-  claude: { bin: "claude", label: "Claude Code CLI", uninstall: "npm uninstall -g @anthropic-ai/claude-code" },
-  codex: { bin: "codex", label: "Codex CLI", uninstall: "npm uninstall -g @openai/codex" },
+  claude: { bin: EXTERNAL_BINS.claude, label: "Claude Code CLI", uninstall: "npm uninstall -g @anthropic-ai/claude-code" },
+  codex: { bin: EXTERNAL_BINS.codex, label: "Codex CLI", uninstall: "npm uninstall -g @openai/codex" },
 };
 const REG = path.join(HOME, "runners.json");
 
 function readReg() { try { return JSON.parse(fs.readFileSync(REG, "utf8")); } catch { return {}; } }
 function writeReg(reg) { fs.mkdirSync(HOME, { recursive: true, mode: 0o700 }); const tmp = REG + ".tmp"; fs.writeFileSync(tmp, JSON.stringify(reg, null, 2) + "\n", { mode: 0o600 }); fs.renameSync(tmp, REG); }
 
-export function findBinary(bin, env = process.env) {
-  for (const d of String(env.PATH || "").split(path.delimiter)) {
-    if (!d) continue;
-    const p = path.join(d, bin);
-    try { fs.accessSync(p, fs.constants.X_OK); if (fs.statSync(p).isFile()) return p; } catch { /* next */ }
-  }
-  return null;
-}
+// The PATH probe itself now lives in runner-bins.js (config.js needs it too); re-exported so every
+// existing caller keeps importing it from the runners module it belongs to.
+export { findBinary };
 
 // [{id, label, available, enabled, path, default}] — the list the Hoop's /code/runners also derives from.
 export function listRunners(env = process.env) {
@@ -210,7 +206,7 @@ export async function runExternal({ id, cfg, policy, session, prompt, onText, on
   const entry = listRunners(env).find(r => r.id === id);
   if (!entry) throw new Error(`unknown runner ${id}`);
   if (!entry.enabled) throw new Error(`${entry.label} was removed from hcode (hcode runner add ${id} to enable it again)`);
-  if (!entry.available) throw new Error(`${entry.label} is not installed: no \`${EXTERNAL[id].bin}\` on PATH. Install it yourself, or use --runner hcode`);
+  if (!entry.available) throw new Error(`${entry.label} is not installed: no \`${EXTERNAL[id].bin}\` on PATH. Install it yourself, or use --runner direct`);
   if (!allowUnsafeWorkspace) assertSafeExternalWorkspace(cfg.cwd);
   const safeImages = validateRunnerImages(images);
   const unsub = onEvent ? session.onEvent(onEvent) : null;

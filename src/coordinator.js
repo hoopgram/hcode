@@ -3,6 +3,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
+import { canonical } from "./canonical.js";
 
 const CONTRACT_FIELDS = new Set(["v", "id", "objective", "cwd", "constraints", "acceptance", "ownerGates", "budget", "lanes", "status", "stopReason"]);
 const BUDGET_FIELDS = new Set(["wallMs", "maxChildren", "maxConcurrent", "childTimeoutMs", "heartbeatTimeoutMs", "maxRetries", "maxTokens", "maxCostUsd"]);
@@ -23,11 +24,7 @@ const natural = (value, label, { nullable = false, min = 0 } = {}) => {
 };
 const pause = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 
-export function canonical(value) {
-  if (Array.isArray(value)) return "[" + value.map(canonical).join(",") + "]";
-  if (value && typeof value === "object") return "{" + Object.keys(value).sort().map(k => JSON.stringify(k) + ":" + canonical(value[k])).join(",") + "}";
-  return JSON.stringify(value);
-}
+export { canonical };
 export const contractHash = contract => "sha256:" + crypto.createHash("sha256").update(canonical(contract)).digest("hex");
 
 const RECEIPT_STATUS = new Set(["pass", "fail", "blocked-by-environment", "not-run"]);

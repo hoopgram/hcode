@@ -3,13 +3,36 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { runtimeAsset } from "./runtime.js";
+import { AUTO_ORDER, EXTERNAL_BINS, findBinary } from "./runner-bins.js";
 
 const SOURCE_REVISION = process.env.HCODE_BUILD_REVISION || "";
-export const VERSION = "0.10.3" + (/^[0-9a-f]{40}$/.test(SOURCE_REVISION) ? `+git.${SOURCE_REVISION.slice(0, 12)}` : "");
+// package.json is the one place the version is written; the native build ships it as an SEA asset
+// (see scripts/build-native.mjs) so this never drifts into a second hardcoded copy that a version
+// bump can forget to touch.
+const packageJsonPath = fileURLToPath(new URL("../package.json", import.meta.url));
+const PACKAGE_VERSION = JSON.parse(runtimeAsset("package.json", packageJsonPath)).version;
+export const VERSION = PACKAGE_VERSION + (/^[0-9a-f]{40}$/.test(SOURCE_REVISION) ? `+git.${SOURCE_REVISION.slice(0, 12)}` : "");
 export const HOME = process.env.HCODE_HOME || path.join(os.homedir(), ".hcode");
 // Tests exercise both sides of the locality contract even when the gate itself runs on a Hoop.
 // This test-only switch can only remove the local default; it cannot grant access or credentials.
 export const ON_HOOP = process.env.HCODE_TEST_OFF_HOOP === "1" ? false : fs.existsSync("/etc/hoopgram/product.json");
+
+// hcode owns the session, policy and evidence layer; the owner-installed executor that calls the
+// model is a separate choice. "direct" is the public spelling for hcode's built-in API path while
+// the stable on-wire id remains "hcode" for old configs and sessions.
+export const DIRECT_RUNNER = "hcode";
+export const RUNNER_CHOICES = "codex|claude|direct";
+export const normalizeRunner = value => String(value ?? "").trim() === "direct" ? DIRECT_RUNNER : String(value ?? "").trim();
+export function autoRunner(env = process.env, home = HOME) {
+  const registry = readJson(path.join(home, "runners.json"), {}) || {};
+  for (const id of AUTO_ORDER) {
+    if (registry[id]?.enabled === false) continue;
+    if (findBinary(EXTERNAL_BINS[id], env)) return id;
+  }
+  return DIRECT_RUNNER;
+}
 
 const DEFAULTS = {
   baseUrl: ON_HOOP ? "http://127.0.0.1:8092" : "https://api.anthropic.com",
@@ -23,7 +46,9 @@ const DEFAULTS = {
   // The same-provider lighter model stays as the second fallback for pure rate-limit cases.
   fallbackModels: ON_HOOP ? ["glm-5.3", "deepseek-v4-flash"] : [],
   fallbackMinContextTokens: 16000,
-  effort: "high",          // portable reasoning tier: low | medium | high
+  effort: "high",          // reasoning tier: low | medium | high | xhigh | max (high = the API default)
+  promptCache: true,       // true = automatic breakpoint | "explicit" = tools/system/messages | false = off
+  cacheTtl: "5m",          // 5m (1.25x write) | 1h (2x write); cache reads are 0.1x either way
   mode: "all",            // read | ask | auto | all; full agency inside the fixed hard gates
   maxTokens: 8192,
   maxTurns: 40,
@@ -34,10 +59,20 @@ const DEFAULTS = {
   tokenBudget: 120000,    // context budget (tokens) before automatic compaction
   contextRotTokens: 10000, // preventive compact+flush threshold; never wait for the max window
   timeoutMs: 15 * 60 * 1000, // one model call, total (a slow local brain may need minutes before the first byte)
-  runner: "hcode",        // always the persisted coordinator; external values are one-shot compatibility only
   hoopUrl: ON_HOOP ? "http://127.0.0.1:8095" : "",
   hoopName: ON_HOOP ? os.hostname() : "",
 };
+
+// Prompt caching is a billing dial, not a capability: the request shape it produces only ever
+// reaches Anthropic's own routes (api.js gates on the model family). Accepts a boolean, the word
+// "explicit" for hand-placed breakpoints, or the usual off spellings an env var arrives as.
+export function normalizePromptCache(value) {
+  const v = typeof value === "string" ? value.trim().toLowerCase() : value;
+  if (v === undefined || v === null || v === "" || v === true || v === "1" || v === "true" || v === "on" || v === "auto") return true;
+  if (v === false || v === "0" || v === "false" || v === "off" || v === "no") return false;
+  if (v === "explicit") return "explicit";
+  throw new Error(`bad promptCache ${value} (true|false|auto|explicit)`);
+}
 
 export function readJson(file, fallback = null) {
   try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch { return fallback; }
@@ -61,10 +96,17 @@ export function readPrices(raw) {
   return PRICE_CLASSES.some(key => prices[key] > 0) ? Object.freeze(prices) : null;
 }
 
+// The Messages API effort ladder, weakest first. `high` is the API default (setting it changes
+// nothing); `xhigh` is the documented starting point for long-horizon coding work on the newest
+// models. Keep one level for a whole session: the resolved effort is rendered into the prompt, so
+// changing it starts a new prompt-cache prefix and the history is re-read at full price (api.js).
+export const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"];
+
 export function loadConfig(cli = {}) {
   const file = readJson(path.join(HOME, "config.json"), {}) || {};
   const env = process.env;
   const pick = (...vals) => vals.find(v => v !== undefined && v !== null && v !== "");
+  const runnerChoice = pick(cli.runner, env.HCODE_RUNNER, file.runner);
   const fallbackValue = cli.fallbackModels !== undefined ? cli.fallbackModels
     : env.HCODE_FALLBACK_MODELS !== undefined ? env.HCODE_FALLBACK_MODELS
     : file.fallbackModels !== undefined ? file.fallbackModels : DEFAULTS.fallbackModels;
@@ -77,6 +119,8 @@ export function loadConfig(cli = {}) {
     fallbackModels,
     fallbackMinContextTokens: Number(pick(cli.fallbackMinContextTokens, env.HCODE_FALLBACK_MIN_CONTEXT_TOKENS, file.fallbackMinContextTokens, DEFAULTS.fallbackMinContextTokens)),
     effort: pick(cli.effort, env.HCODE_EFFORT, file.effort, DEFAULTS.effort),
+    promptCache: normalizePromptCache(pick(cli.promptCache, env.HCODE_PROMPT_CACHE, file.promptCache, DEFAULTS.promptCache)),
+    cacheTtl: pick(cli.cacheTtl, env.HCODE_CACHE_TTL, file.cacheTtl, DEFAULTS.cacheTtl),
     mode: pick(cli.mode, env.HCODE_MODE, file.mode, DEFAULTS.mode),
     maxTokens: Number(pick(cli.maxTokens, env.HCODE_MAX_TOKENS, file.maxTokens, DEFAULTS.maxTokens)),
     maxTurns: Number(pick(cli.maxTurns, env.HCODE_MAX_TURNS, file.maxTurns, DEFAULTS.maxTurns)),
@@ -87,9 +131,9 @@ export function loadConfig(cli = {}) {
     tokenBudget: Number(pick(cli.tokenBudget, env.HCODE_TOKEN_BUDGET, file.tokenBudget, DEFAULTS.tokenBudget)),
     contextRotTokens: Number(pick(cli.contextRotTokens, env.HCODE_CONTEXT_ROT_TOKENS, file.contextRotTokens, DEFAULTS.contextRotTokens)),
     timeoutMs: Number(pick(cli.timeoutMs, env.HCODE_TIMEOUT_MS, file.timeoutMs, DEFAULTS.timeoutMs)),
-    // A stored 0.3.0 external runner is deliberately not restored: Codex/Claude are subagents now.
-    // An explicit one-shot --runner/HCODE_RUNNER remains as a compatibility escape hatch.
-    runner: pick(cli.runner, env.HCODE_RUNNER, DEFAULTS.runner),
+    // Explicit beats automatic: CLI, environment, then the owner's saved choice. Only when all
+    // three are absent do we detect Codex, then Claude, with the direct API path as the floor.
+    runner: normalizeRunner(runnerChoice === undefined ? autoRunner(env) : runnerChoice),
     hoopUrl: pick(cli.hoopUrl, env.HCODE_HOOP_URL, file.hoopUrl, DEFAULTS.hoopUrl),
     hoopName: pick(cli.hoopName, env.HCODE_HOOP_NAME, file.hoopName, DEFAULTS.hoopName),
     defaultHoop: pick(cli.defaultHoop, env.HCODE_DEFAULT_HOOP, file.defaultHoop, ""),
@@ -103,8 +147,9 @@ export function loadConfig(cli = {}) {
     prices: readPrices(pick(env.HCODE_PRICES, file.prices)),
   };
   if (!["read", "ask", "auto", "all"].includes(cfg.mode)) throw new Error(`bad --mode ${cfg.mode} (read|ask|auto|all)`);
-  if (!["hcode", "claude", "codex"].includes(cfg.runner)) throw new Error(`bad --runner ${cfg.runner} (hcode|claude|codex)`);
-  if (!["low", "medium", "high"].includes(cfg.effort)) throw new Error(`bad --effort ${cfg.effort} (low|medium|high)`);
+  if (!["hcode", "claude", "codex"].includes(cfg.runner)) throw new Error(`bad --runner ${cfg.runner} (${RUNNER_CHOICES})`);
+  if (!EFFORT_LEVELS.includes(cfg.effort)) throw new Error(`bad --effort ${cfg.effort} (${EFFORT_LEVELS.join("|")})`);
+  if (!["5m", "1h"].includes(cfg.cacheTtl)) throw new Error(`bad cacheTtl ${cfg.cacheTtl} (5m|1h)`);
   if (!(Number.isInteger(cfg.maxTurns) && cfg.maxTurns >= 1 && cfg.maxTurns <= 100)) throw new Error("maxTurns must be an integer from 1 to 100");
   if (!(Number.isInteger(cfg.missionStepBudget) && cfg.missionStepBudget >= cfg.maxTurns)) throw new Error("missionStepBudget must be an integer ≥ maxTurns");
   if (!(Number.isInteger(cfg.missionTokenBudget) && cfg.missionTokenBudget >= cfg.maxTokens)) throw new Error("missionTokenBudget must be an integer ≥ maxTokens");
@@ -116,6 +161,7 @@ export function loadConfig(cli = {}) {
   if (!(Number.isInteger(cfg.fallbackMinContextTokens) && cfg.fallbackMinContextTokens >= 4000)) throw new Error("fallbackMinContextTokens must be an integer ≥ 4000");
   cfg.fallbackModels = [...new Set(cfg.fallbackModels)].filter(model => model !== cfg.model).slice(0, 8);
   cfg.modeExplicit = Boolean(cli.mode || env.HCODE_MODE || file.mode);
+  cfg.runnerExplicit = runnerChoice !== undefined;
   cfg.baseUrl = String(cfg.baseUrl).replace(/\/+$/, "");
   cfg.hoopUrl = String(cfg.hoopUrl || "").replace(/\/+$/, "");
   return cfg;

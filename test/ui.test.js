@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { TURN_METER_MS, createPalette, createUI, formatElapsed, formatSpend, formatTokens, inputStyle, inputTheme, renderMarkdown, themeFromRgb } from "../src/ui.js";
+import { INPUT_THEME_TOKENS, TURN_METER_MS, createPalette, createUI, formatElapsed, formatSpend, formatTokens, formatWelcomeDate, inputStyle, inputTheme, renderMarkdown, themeFromRgb } from "../src/ui.js";
 import { MUSINGS, WAITING_WORDS, musing, waitingWord } from "../src/musings.js";
 import { Presence } from "../src/presence.js";
 import { displayWidth } from "../src/frame.js";
@@ -22,6 +22,10 @@ const sample = (terminal, width = 80) => {
   terminal.toolEnd("$ npm test", "73 tests passed", { state: "done", durationMs: 1234 });
   return prompt;
 };
+
+test("welcome date is short, local and stable", () => {
+  assert.equal(formatWelcomeDate(new Date(2026, 8, 9, 20, 0)), "9 Sep 2026 20:00PM");
+});
 
 test("terminal capabilities are per sink and honor NO_COLOR presence", () => {
   const out = sink({ isTTY: true }); const err = sink({ isTTY: false });
@@ -108,19 +112,18 @@ test("input colour has explicit, hinted and honest-auto theme paths", () => {
   assert.equal(inputTheme({ TERM: "xterm" }), "auto");
   assert.equal(themeFromRgb("0000", "0000", "0000"), "dark");
   assert.equal(themeFromRgb("ffff", "f000", "e800"), "light");
-  assert.match(inputStyle("dark").row, /48;5;235m.*38;5;252m/);
-  assert.match(inputStyle("light").row, /48;5;254m.*38;5;236m/);
-  assert.equal(inputStyle("dark").command, "\x1b[1;38;2;255;214;10m", "dark fields use luminous yellow");
-  assert.equal(inputStyle("light").command, "\x1b[1;38;2;169;120;0m", "light fields keep enough contrast to stay gold");
-  assert.equal(inputStyle("auto").command, "\x1b[1;38;2;169;120;0m", "unknown backgrounds take the contrast-safe color");
+  assert.equal(inputStyle("dark"), INPUT_THEME_TOKENS.dark);
+  assert.equal(inputStyle("light"), INPUT_THEME_TOKENS.light);
+  assert.equal(inputStyle("auto"), INPUT_THEME_TOKENS.auto);
+  assert.match(inputStyle("light").row, /^\x1b\[48;5;\d+m\x1b\[38;5;\d+m$/, "the final projection remains one background plus one foreground");
   const luminance = rgb => rgb.map(value => { const n = value / 255; return n <= 0.04045 ? n / 12.92 : ((n + 0.055) / 1.055) ** 2.4; })
     .reduce((sum, value, index) => sum + value * [0.2126, 0.7152, 0.0722][index], 0);
-  const [gold, field] = [[169, 120, 0], [228, 228, 228]].map(luminance);
+  const [gold, field] = [INPUT_THEME_TOKENS.light.commandRgb, INPUT_THEME_TOKENS.light.backgroundRgb].map(luminance);
   assert.ok((field + 0.05) / (gold + 0.05) >= 3, "light gold clears Ghostty's 2.3 minimum instead of being replaced with black");
 
-  for (const [theme, background] of [["dark", "235"], ["light", "254"]]) {
+  for (const theme of ["dark", "light"]) {
     const prompt = createUI({ out: sink({ isTTY: true }), err: sink(), env: { TERM: "xterm", HCODE_INPUT_THEME: theme } }).prompt();
-    assert.match(prompt.prompt, new RegExp(`\\x1b\\[48;5;${background}m`));
+    assert.ok(prompt.prompt.includes(INPUT_THEME_TOKENS[theme].row));
     assert.equal(stripAnsi(prompt.prompt), "\n› ", `${theme} changes only projection, never the prompt text`);
   }
   const native = createUI({ out: sink({ isTTY: true }), err: sink(), env: { TERM: "xterm" } }).prompt();
@@ -181,7 +184,7 @@ test("40, 80 and 120 columns preserve all critical facts", () => {
     const terminal = createUI({ out, err, columns, env: { HOME: "/Users/owner", NO_COLOR: "" } });
     const prompt = sample(terminal, columns);
     const text = out.text + prompt;
-    assert.match(text, /\n {2}○ Welcome to Hoop\n {2}Your machine\. Your work\.\n {2}hoop: not linked yet\n/);
+    assert.match(text, /\n {2}\d{1,2} [A-Z][a-z]{2} \d{4} \d{2}:\d{2}(?:AM|PM)\n\n {2}○ Welcome to Hoop\n {2}Your machine\. Your work\.\n {2}hoop: not linked yet\n/);
     assert.match(text, /~\/Projects\/非常长的项目\/with-a-very-long-name/);
     assert.match(text, /· Hoop Code · ask before changes/);
     assert.match(text, /\n {2}「.+」\n/, "the welcome keeps the Tao line and removes the explanatory prefix");

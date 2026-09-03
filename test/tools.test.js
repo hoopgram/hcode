@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import http from "node:http";
 import { spawnSync } from "node:child_process";
-import { createTools, resolveInside, isSecretPath, allowed, toolDefs } from "../src/tools.js";
+import { createTools, resolveInside, isSecretPath, allowed, toolDefs, ALL_TOOL_CONTRACT } from "../src/tools.js";
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "hcode-t-"));
 // Tool mechanics are tested without an OS wrapper here; SandboxWriteGate has
@@ -165,4 +165,14 @@ test("web_search is injectable, bounded and forwards cancellation without openin
   const t = createTools({ root, webSearch: async (query, options) => { calls.push({ query, options }); return "1. result\n   https://example.com"; } });
   assert.match(await t.web_search({ query: "anope youtube", max_results: 3 }, { signal: controller.signal }), /https:\/\/example\.com/);
   assert.equal(calls[0].query, "anope youtube"); assert.equal(calls[0].options.maxResults, 3); assert.equal(calls[0].options.signal, controller.signal);
+});
+
+test("tool contract quality gate: every tool has a 2+ sentence description, and every input field has one too", () => {
+  const sentenceCount = text => text.split(/(?<=[.!?])\s+/).filter(Boolean).length;
+  for (const t of ALL_TOOL_CONTRACT) {
+    assert.ok(sentenceCount(t.description) >= 2, `${t.name}: description should be 2+ sentences, got: "${t.description}"`);
+    for (const [field, shape] of Object.entries(t.input.properties)) {
+      assert.ok(typeof shape.description === "string" && shape.description.trim().length > 0, `${t.name}.${field}: input field needs a non-empty description`);
+    }
+  }
 });

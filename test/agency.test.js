@@ -12,6 +12,11 @@ import { startFakeModel, text, tool } from "./fake-model.js";
 import { runAgent } from "../src/agent.js";
 import { Session } from "../src/session.js";
 
+// These tests exercise hcode's own direct model call against a fake brain, so the runner is pinned:
+// the default runner is now the first external CLI on PATH, and a codex or claude the developer
+// happens to have installed would otherwise silently run the turn (and reach the network).
+process.env.HCODE_RUNNER = "hcode";   // "direct" under its on-the-wire name
+
 const cfg = { cwd: process.cwd(), mode: "all", effort: "high", model: "deepseek-v4-pro", fullAgency: true, agencyCanon: loadAgencyCanon() };
 
 test("canonical Full Agency text is exact and is injected before hcode's own system prompt", () => {

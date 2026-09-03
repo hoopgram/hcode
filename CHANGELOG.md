@@ -1,6 +1,122 @@
 # Changelog
 
-## Unreleased
+## 0.10.11 — 2026-09-03
+
+- **All four native CI hosts use the same honest proofs.** The secret-symlink test now owns an existing
+  private fixture instead of assuming a runner already has `~/.ssh/id_rsa`, and the process sampler waits
+  for its in-flight observation before closing. Linux and macOS therefore prove the same boundary without
+  weakening the refusal or resource contracts.
+
+## 0.10.10 — 2026-09-03
+
+- **The development line is one source again.** The complete 0.10.9 kernel, CLI split, asynchronous read
+  execution, single development entrance and local delivery adapters are integrated with the bounded-runner
+  semantics already on the HoopGram main line. Source/npm, host-native and Nix remain projections of this tree.
+- **Safe external execution remains the default.** With no explicit owner choice, hcode detects Codex, then
+  Claude, and uses its direct provider call only as the floor. Codex always receives `--sandbox read-only` or
+  `--sandbox workspace-write`; no dangerous bypass flag is used, and doctor reports the selected sandbox.
+- **Native update tests remain host-independent.** A Nix-provided Node does not make source hcode immutable;
+  only a native hcode executable in the Nix store is Nix-managed, and the injected test seam preserves that
+  production classification.
+
+## 0.10.9 — 2026-09-02
+
+- **`cli.js` is only the launch now.** `main()` is 38 lines of named phases; the owner-facing prompts, the
+  one-shot subcommands and the interactive session now live in their own modules — `cli-prompts.js`,
+  `cli-commands.js` and `cli-session.js`. No flag, exit code, message or render path changed. Dead code removed
+  along the way: an unread `lastTurnFailed`, an unreachable duplicate `resume === "list"` check, and an unused
+  `activeDir` import.
+
+- **Reads proposed together now really overlap.** The read tools (`read_file`/`list_dir`/`glob`/`grep`) wait on
+  the filesystem asynchronously, so a step that proposes several reads actually runs them concurrently instead of
+  one after another; every output, refusal and error code is unchanged, and paths are still judged before the
+  first `await`. Measured: four 60ms synthetic waits went from 490ms to 124ms; on a warm local SSD the gain is
+  within noise. A batch of reads also announces itself once with a count ("Reading a.txt +3 more") instead of N
+  start lines painting over each other in the composer.
+
+- **`/effort` accepts the same five levels as `/config`.** `low`/`medium`/`high`/`xhigh`/`max` — the argument
+  form used to accept only the first three.
+
+- **Internal helpers deduplicated.** `canonical()` and `readJson()` are now each defined once (`src/canonical.js`,
+  `config.js`) and shared by session, coordinator, policy and rules, instead of separate copies drifting apart.
+
+- **Version now sources from package.json.** The binary's version comes from `package.json` instead of a second hardcoded copy in `src/config.js`, which had silently drifted to 0.10.8; the native build's self-probe stays as the loud check.
+
+- **Docs.** `START-HERE.md` is the single entry point; `CLAUDE.md`/`AGENTS.md` are one-line pointers to it. The
+  file-by-file map moved from `HCODE.md` to `ARCHITECTURE.md` §8, covering every `src/*.js` and locked by
+  `test/doc-drift.test.js` (which also checks every backticked path in the core docs exists, and that
+  `UI-MAP.md` matches its generator). `HCODE.md` no longer restates the three render paths.
+
+## 0.10.8 — 2026-09-02
+
+- **A long session stops paying full price for the same prefix.** Turns against a native Claude brain now carry a
+  prompt cache breakpoint: by default one top-level `cache_control` that the API keeps moving to the end of the
+  growing conversation, so a thirty-step session re-reads its system prompt, tool schema and history at cache
+  price instead of buying them thirty times. `promptCache: "explicit"` places the breakpoints by hand
+  (tools, system, last user block) when the stable prefix should keep its own entry, `HCODE_CACHE_TTL=1h`
+  buys the long TTL, and `HCODE_PROMPT_CACHE=0` turns the whole thing off. Anthropic-compatible gateways
+  (DeepSeek, z.ai, a local llama.cpp) still receive the portable body — an unknown field there is a 400 —
+  and the message list handed to the API is copied, never rewritten, so the session ledger's projection is
+  unchanged. The non-streaming offline retry reuses the same body, so a fallback turn shares the same prefix.
+
+- **`--effort` now reaches the whole ladder the current models support.** `xhigh` (the documented starting point
+  for long-horizon coding work) and `max` were rejected by hcode's own validation, so a Claude brain could only
+  be asked for `low`, `medium` or `high`. All five levels now pass through to `output_config.effort`, `--help`
+  and `/config` name them, and `/config` says out loud that changing the level mid-session starts a new prompt
+  cache prefix — a level change is not free, it re-reads the session's context at full price.
+  The system prompt names the same five tiers, so a session running at `xhigh` or `max` is no longer
+  told it is on a tier that does not exist.
+
+- **Read-only tools proposed together now run together.** When a step proposes several calls, hcode still
+  validates, replays and negotiates them strictly in the model's order — an owner is never asked two questions at
+  once — and then runs up to four adjacent calls concurrently if they are idempotent, carry only `read` risk and
+  were allowed without asking. Writes, `bash`, network, `ask_user` and delegation stay serial and are never
+  overtaken; results reach the brain in the model's order; the ledger, the composer, the readline path and the
+  plain sink are written after the batch settles, in that same order, and each call is timed for its own waiting.
+  `HCODE_PARALLEL_TOOLS=0` or `"parallelTools": false` in `.hcode/settings.json` restores the fully serial loop.
+
+- **The agent kernel now reads as named phases instead of one 220-line function.** `runAgent()` sequences
+  `makeDelegate`, `recoverInterrupted`, `callBrain`, `recordProposal`, `prepareCall`, `shortCircuit`,
+  `negotiate`, `runTool` and `settleCall`, so the loop states the architecture invariant — brains propose,
+  policy decides, tools act, the session records, the terminal projects — in the order it happens. No event
+  type, order or payload changes; ARCHITECTURE.md §1 names the same phases.
+
+- **Every tool and input field now tells the model what it's for.** `read_file`/`write_file`/`edit_file`/`grep` and the rest of the tool belt, `escalate_hard_gate`'s 4+1 hard-gate fields, and all six `hoop_*` tools carry a real 2-4 sentence description (what it does, when to use it vs. a sibling tool, and its failure/limit behaviour) plus a description on every one of their 55 previously-undocumented input fields; a new test enforces both going forward. `delegate_agent`'s description is also trimmed from one 83-word run-on to four short sentences. Lean mode (small local brains) is unaffected — `LEAN_DESCRIPTIONS` now also covers `escalate_hard_gate` and the `hoop_*` tools so it never has to fall back to truncating the new longer descriptions.
+
+## 0.10.7 — 2026-09-02 — 远端运行契约
+
+- Treat a Nix-provided source Node as source rather than a Nix-managed hcode executable, and ignore inert `.git` markers while locating a source checkout, so update truth is the same on god and ordinary developer hosts.
+- Map the footer's semantic source, one-row priority projection and real-PTY fixture directly, and launch remote dependency lanes as soon as their exact internal base exists.
+
+## 0.10.6 — 2026-09-01 — UI 快车道
+
+- Compress the footer into one essential row
+
+- Give Codex, Claude and hcode one `START-HERE.md`, plus an exact fast-forward remote-candidate to host-native local install adapter.
+
+## 0.10.5 — 2026-09-01 — UI 快车道
+
+- Make local UI changes one bounded measured command with semantic tokens and a generated pointer map
+
+## 0.10.4 — 2026-09-01 — 金边时刻
+
+- **The opening now begins with the local date and time.** One quiet `9 Sep 2026 20:00PM`-style line appears before the welcome identity, with no locale-dependent clutter.
+- **The input surface is lighter.** Its theme-matched shadow recedes while two slim gold side edges hold the live composer without adding horizontal rules to scrollback.
+
+- **hcode no longer assumes it is the one calling the model.** `--runner codex|claude|direct` (and `HCODE_RUNNER`)
+  names the executor; with nothing said anywhere, hcode uses the first external CLI this machine actually has —
+  `codex`, else `claude`, else `direct`. Explicit always beats detection: `--runner`, `HCODE_RUNNER` and a `runner`
+  saved in `~/.hcode/config.json` each stop the detection completely, a runner taken out with `hcode runner remove`
+  is not a candidate, and `direct` is never reached automatically while an installed runner is available. `direct`
+  is the public name of hcode's own model call — kept, unchanged, and still what `--runner hcode` means; `hcode`
+  remains the id in session headers and coordinator lanes so saved configs and stored threads keep working.
+- **A resumed thread keeps the runner it was already running on**, because a foreign CLI resumed under a different
+  name would start a conversation of its own and quietly lose the history. An explicit runner still moves it.
+- **`hcode launch <runner> <prompt>`** is `hcode task start <runner> <prompt>` under a shorter name — the same
+  handler, so one workspace question, one spend gate and one ledger.
+- **`hcode doctor` tells the truth about an unused brain.** With an external runner in charge and no key, the key
+  row is no longer a failure and no ping is sent to any provider; the runners row names who answers the next turn
+  and whether that was your choice or a detection.
 
 ## 0.10.3 — 2026-09-01 — 施工入口
 

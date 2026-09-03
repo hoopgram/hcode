@@ -1,6 +1,6 @@
 {
   "name": "@hoopgram/hcode",
-  "version": "0.10.3",
+  "version": "0.10.11",
   "description": "Hoop Code — HoopGram's self-contained AI coding agent for your terminal, with zero third-party runtime packages.",
   "license": "AGPL-3.0",
   "type": "module",
@@ -14,7 +14,14 @@
     "launchd/",
     "FULL-AGENCY.md",
     "README.md",
+    "START-HERE.md",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "HCODE.md",
     "DEVELOPING.md",
+    "UI-MAP.md",
+    "scripts/local-ui.mjs",
+    "scripts/local-pull.mjs",
     "ARCHITECTURE.md",
     "CAPABILITY-BOUNDARY.md",
     "LICENSE"
@@ -25,6 +32,8 @@
   "scripts": {
     "test": "node --test test/*.test.js",
     "check": "node --check bin/hcode.js && node --check bin/hcode-supervise.js && for f in src/*.js scripts/*.mjs; do node --check $f; done",
+    "local:ui": "node scripts/local-ui.mjs",
+    "local:pull": "node scripts/local-pull.mjs",
     "build:native": "node scripts/build-native.mjs --target current",
     "build:native:all": "node scripts/build-native.mjs --target all"
   },
